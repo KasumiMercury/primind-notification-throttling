@@ -1,0 +1,699 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
+	"go.uber.org/mock/gomock"
+)
+
+func TestClassifyByTaskType(t *testing.T) {
+	svc := &ThrottleService{}
+
+	tests := []struct {
+		name     string
+		reminds  []client.RemindResponse
+		expected *ClassifiedReminds
+	}{
+		{
+			name:    "empty list",
+			reminds: []client.RemindResponse{},
+			expected: &ClassifiedReminds{
+				Urgency:   []client.RemindResponse{},
+				Scheduled: []client.RemindResponse{},
+				Normal:    []client.RemindResponse{},
+				Low:       []client.RemindResponse{},
+			},
+		},
+		{
+			name: "classify each task type",
+			reminds: []client.RemindResponse{
+				{ID: "1", TaskType: "Urgency"},
+				{ID: "2", TaskType: "Scheduled"},
+				{ID: "3", TaskType: "Normal"},
+				{ID: "4", TaskType: "Low"},
+			},
+			expected: &ClassifiedReminds{
+				Urgency:   []client.RemindResponse{{ID: "1", TaskType: "Urgency"}},
+				Scheduled: []client.RemindResponse{{ID: "2", TaskType: "Scheduled"}},
+				Normal:    []client.RemindResponse{{ID: "3", TaskType: "Normal"}},
+				Low:       []client.RemindResponse{{ID: "4", TaskType: "Low"}},
+			},
+		},
+		{
+			name: "unknown task type falls back to Normal",
+			reminds: []client.RemindResponse{
+				{ID: "1", TaskType: "Unknown"},
+				{ID: "2", TaskType: "InvalidType"},
+			},
+			expected: &ClassifiedReminds{
+				Urgency:   []client.RemindResponse{},
+				Scheduled: []client.RemindResponse{},
+				Normal: []client.RemindResponse{
+					{ID: "1", TaskType: "Unknown"},
+					{ID: "2", TaskType: "InvalidType"},
+				},
+				Low: []client.RemindResponse{},
+			},
+		},
+		{
+			name: "multiple reminds of same type",
+			reminds: []client.RemindResponse{
+				{ID: "1", TaskType: "Urgency"},
+				{ID: "2", TaskType: "Urgency"},
+				{ID: "3", TaskType: "Normal"},
+			},
+			expected: &ClassifiedReminds{
+				Urgency: []client.RemindResponse{
+					{ID: "1", TaskType: "Urgency"},
+					{ID: "2", TaskType: "Urgency"},
+				},
+				Scheduled: []client.RemindResponse{},
+				Normal:    []client.RemindResponse{{ID: "3", TaskType: "Normal"}},
+				Low:       []client.RemindResponse{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := svc.ClassifyByTaskType(tt.reminds)
+
+			if len(result.Urgency) != len(tt.expected.Urgency) {
+				t.Errorf("Urgency: got %d, want %d", len(result.Urgency), len(tt.expected.Urgency))
+			}
+			if len(result.Scheduled) != len(tt.expected.Scheduled) {
+				t.Errorf("Scheduled: got %d, want %d", len(result.Scheduled), len(tt.expected.Scheduled))
+			}
+			if len(result.Normal) != len(tt.expected.Normal) {
+				t.Errorf("Normal: got %d, want %d", len(result.Normal), len(tt.expected.Normal))
+			}
+			if len(result.Low) != len(tt.expected.Low) {
+				t.Errorf("Low: got %d, want %d", len(result.Low), len(tt.expected.Low))
+			}
+		})
+	}
+}
+
+func TestExtractFCMTokens(t *testing.T) {
+	svc := &ThrottleService{}
+
+	tests := []struct {
+		name     string
+		devices  []client.DeviceResponse
+		expected []string
+	}{
+		{
+			name:     "empty devices",
+			devices:  []client.DeviceResponse{},
+			expected: []string{},
+		},
+		{
+			name: "extract all tokens",
+			devices: []client.DeviceResponse{
+				{DeviceID: "d1", FCMToken: "token1"},
+				{DeviceID: "d2", FCMToken: "token2"},
+			},
+			expected: []string{"token1", "token2"},
+		},
+		{
+			name: "skip empty tokens",
+			devices: []client.DeviceResponse{
+				{DeviceID: "d1", FCMToken: "token1"},
+				{DeviceID: "d2", FCMToken: ""},
+				{DeviceID: "d3", FCMToken: "token3"},
+			},
+			expected: []string{"token1", "token3"},
+		},
+		{
+			name: "all empty tokens",
+			devices: []client.DeviceResponse{
+				{DeviceID: "d1", FCMToken: ""},
+				{DeviceID: "d2", FCMToken: ""},
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := svc.ExtractFCMTokens(tt.devices)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("got %d tokens, want %d", len(result), len(tt.expected))
+				return
+			}
+			for i, token := range result {
+				if token != tt.expected[i] {
+					t.Errorf("token[%d]: got %q, want %q", i, token, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestProcessReminds_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices: []client.DeviceResponse{
+			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, task *client.NotificationTask) (*client.TaskResponse, error) {
+			if task.RemindID != "remind-1" {
+				t.Errorf("unexpected remind_id: got %q, want %q", task.RemindID, "remind-1")
+			}
+			if task.UserID != "user-1" {
+				t.Errorf("unexpected user_id: got %q, want %q", task.UserID, "user-1")
+			}
+			if len(task.FCMTokens) != 1 || task.FCMTokens[0] != "fcm-token-1" {
+				t.Errorf("unexpected fcm_tokens: got %v", task.FCMTokens)
+			}
+			return &client.TaskResponse{
+				Name:         "task-name-1",
+				ScheduleTime: now.Add(1 * time.Hour),
+				CreateTime:   now,
+			}, nil
+		})
+
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), "remind-1", true).
+		Return(nil)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+	start := now
+	end := now.Add(2 * time.Hour)
+
+	resp, err := svc.ProcessReminds(ctx, start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProcessedCount != 1 {
+		t.Errorf("ProcessedCount: got %d, want 1", resp.ProcessedCount)
+	}
+	if resp.SuccessCount != 1 {
+		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	}
+	if resp.FailedCount != 0 {
+		t.Errorf("FailedCount: got %d, want 0", resp.FailedCount)
+	}
+}
+
+func TestProcessReminds_GetRemindsByTimeRangeError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	expectedErr := errors.New("connection error")
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, expectedErr)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+	now := time.Now()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected error %v, got %v", expectedErr, err)
+	}
+	if resp != nil {
+		t.Errorf("expected nil response, got %+v", resp)
+	}
+}
+
+func TestProcessReminds_RegisterNotificationError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices: []client.DeviceResponse{
+			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	queueErr := errors.New("queue registration failed")
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		Return(nil, queueErr)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if resp == nil {
+		t.Fatal("expected response with failure info, got nil")
+	}
+	if resp.FailedCount != 1 {
+		t.Errorf("FailedCount: got %d, want 1", resp.FailedCount)
+	}
+	if resp.SuccessCount != 0 {
+		t.Errorf("SuccessCount: got %d, want 0", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_UpdateThrottledError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices: []client.DeviceResponse{
+			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		Return(&client.TaskResponse{Name: "task-1"}, nil)
+
+	updateErr := errors.New("update failed")
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), "remind-1", true).
+		Return(updateErr).
+		Times(3)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if resp == nil {
+		t.Fatal("expected response with failure info, got nil")
+	}
+	if resp.FailedCount != 1 {
+		t.Errorf("FailedCount: got %d, want 1", resp.FailedCount)
+	}
+}
+
+func TestProcessReminds_EmptyReminds(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{},
+			Count:   0,
+		}, nil)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+	now := time.Now()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProcessedCount != 0 {
+		t.Errorf("ProcessedCount: got %d, want 0", resp.ProcessedCount)
+	}
+	if resp.SuccessCount != 0 {
+		t.Errorf("SuccessCount: got %d, want 0", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_NoFCMTokens(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices:   []client.DeviceResponse{},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), "remind-1", true).
+		Return(nil)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.SuccessCount != 1 {
+		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_NilTaskQueue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices: []client.DeviceResponse{
+			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), "remind-1", true).
+		Return(nil)
+
+	svc := NewThrottleService(mockRemindRepo, nil)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.SuccessCount != 1 {
+		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_FilterThrottled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	reminds := []client.RemindResponse{
+		{
+			ID:        "remind-1",
+			Time:      now.Add(1 * time.Hour),
+			UserID:    "user-1",
+			TaskID:    "task-1",
+			TaskType:  "Normal",
+			Throttled: true,
+			Devices: []client.DeviceResponse{
+				{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+			},
+		},
+		{
+			ID:        "remind-2",
+			Time:      now.Add(1 * time.Hour),
+			UserID:    "user-2",
+			TaskID:    "task-2",
+			TaskType:  "Normal",
+			Throttled: false,
+			Devices: []client.DeviceResponse{
+				{DeviceID: "device-2", FCMToken: "fcm-token-2"},
+			},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: reminds,
+			Count:   2,
+		}, nil)
+
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		Return(&client.TaskResponse{Name: "task-2"}, nil)
+
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), "remind-2", true).
+		Return(nil)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProcessedCount != 1 {
+		t.Errorf("ProcessedCount: got %d, want 1 (throttled should be filtered)", resp.ProcessedCount)
+	}
+	if resp.SuccessCount != 1 {
+		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	reminds := []client.RemindResponse{
+		{
+			ID:        "remind-urgency",
+			Time:      now.Add(1 * time.Hour),
+			UserID:    "user-1",
+			TaskID:    "task-1",
+			TaskType:  "Urgency",
+			Throttled: false,
+			Devices:   []client.DeviceResponse{{DeviceID: "d1", FCMToken: "token1"}},
+		},
+		{
+			ID:        "remind-scheduled",
+			Time:      now.Add(2 * time.Hour),
+			UserID:    "user-2",
+			TaskID:    "task-2",
+			TaskType:  "Scheduled",
+			Throttled: false,
+			Devices:   []client.DeviceResponse{{DeviceID: "d2", FCMToken: "token2"}},
+		},
+		{
+			ID:        "remind-normal",
+			Time:      now.Add(3 * time.Hour),
+			UserID:    "user-3",
+			TaskID:    "task-3",
+			TaskType:  "Normal",
+			Throttled: false,
+			Devices:   []client.DeviceResponse{{DeviceID: "d3", FCMToken: "token3"}},
+		},
+		{
+			ID:        "remind-low",
+			Time:      now.Add(4 * time.Hour),
+			UserID:    "user-4",
+			TaskID:    "task-4",
+			TaskType:  "Low",
+			Throttled: false,
+			Devices:   []client.DeviceResponse{{DeviceID: "d4", FCMToken: "token4"}},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: reminds,
+			Count:   4,
+		}, nil)
+
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		Return(&client.TaskResponse{Name: "task"}, nil).
+		Times(4)
+
+	mockRemindRepo.EXPECT().
+		UpdateThrottled(gomock.Any(), gomock.Any(), true).
+		Return(nil).
+		Times(4)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(5*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProcessedCount != 4 {
+		t.Errorf("ProcessedCount: got %d, want 4", resp.ProcessedCount)
+	}
+	if resp.SuccessCount != 4 {
+		t.Errorf("SuccessCount: got %d, want 4", resp.SuccessCount)
+	}
+	if resp.FailedCount != 0 {
+		t.Errorf("FailedCount: got %d, want 0", resp.FailedCount)
+	}
+}
+
+func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	now := time.Now()
+	remind := client.RemindResponse{
+		ID:        "remind-1",
+		Time:      now.Add(1 * time.Hour),
+		UserID:    "user-1",
+		TaskID:    "task-1",
+		TaskType:  "Normal",
+		Throttled: false,
+		Devices: []client.DeviceResponse{
+			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
+		},
+	}
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&client.RemindsResponse{
+			Reminds: []client.RemindResponse{remind},
+			Count:   1,
+		}, nil)
+
+	mockTaskQueue.EXPECT().
+		RegisterNotification(gomock.Any(), gomock.Any()).
+		Return(&client.TaskResponse{Name: "task-1"}, nil)
+
+	updateErr := errors.New("temporary error")
+	gomock.InOrder(
+		mockRemindRepo.EXPECT().
+			UpdateThrottled(gomock.Any(), "remind-1", true).
+			Return(updateErr),
+		mockRemindRepo.EXPECT().
+			UpdateThrottled(gomock.Any(), "remind-1", true).
+			Return(nil),
+	)
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	ctx := context.Background()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.SuccessCount != 1 {
+		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	}
+}
+
+func TestProcessReminds_ContextCancellation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRemindRepo := client.NewMockRemindTimeRepository(ctrl)
+	mockTaskQueue := client.NewMockTaskQueue(ctrl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mockRemindRepo.EXPECT().
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, start, end time.Time) (*client.RemindsResponse, error) {
+			cancel()
+			return nil, ctx.Err()
+		})
+
+	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	now := time.Now()
+
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+	if resp != nil {
+		t.Errorf("expected nil response, got %+v", resp)
+	}
+}
