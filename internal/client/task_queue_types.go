@@ -1,0 +1,38 @@
+package client
+
+import "time"
+
+type NotificationTask struct {
+	RemindID   string    `json:"remind_id"`
+	UserID     string    `json:"user_id"`
+	TaskID     string    `json:"task_id"`
+	TaskType   string    `json:"task_type"`
+	FCMTokens  []string  `json:"fcm_tokens"`
+	ScheduleAt time.Time `json:"schedule_at"`
+}
+
+type TaskResponse struct {
+	Name         string    `json:"name"`
+	ScheduleTime time.Time `json:"schedule_time"`
+	CreateTime   time.Time `json:"create_time"`
+}
+
+type PrimindTaskRequest struct {
+	Task PrimindTask `json:"task"`
+}
+
+type PrimindTask struct {
+	HTTPRequest  PrimindHTTPRequest `json:"httpRequest"`
+	ScheduleTime string             `json:"scheduleTime,omitempty"`
+}
+
+type PrimindHTTPRequest struct {
+	Body    string            `json:"body"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+type PrimindTaskResponse struct {
+	Name         string `json:"name"`
+	ScheduleTime string `json:"scheduleTime"`
+	CreateTime   string `json:"createTime"`
+}
