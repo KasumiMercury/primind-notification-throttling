@@ -4,8 +4,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,6 +21,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	// Load configuration
 	cfg := config.Load()
 
@@ -27,12 +36,12 @@ func main() {
 
 	if cfg.RemindTimeManagementURL == "" {
 		slog.Error("REMIND_TIME_MANAGEMENT_URL environment variable is required")
-		os.Exit(1)
+		return 1
 	}
 
 	if err := cfg.TaskQueue.Validate(); err != nil {
 		slog.Error("task queue configuration error", slog.String("error", err.Error()))
-		os.Exit(1)
+		return 1
 	}
 
 	ctx := context.Background()
@@ -50,9 +59,13 @@ func main() {
 	})
 	if err != nil {
 		slog.Error("failed to create cloud tasks client", slog.String("error", err.Error()))
-		os.Exit(1)
+		return 1
 	}
-	defer cloudTasksClient.Close()
+	defer func() {
+		if err := cloudTasksClient.Close(); err != nil {
+			slog.Warn("failed to close cloud tasks client", slog.String("error", err.Error()))
+		}
+	}()
 
 	slog.Info("task queue initialized",
 		slog.String("type", "cloud_tasks"),
@@ -75,14 +88,43 @@ func main() {
 		v1.POST("/throttle", throttleHandler.HandleThrottle)
 	}
 
-	// Start server
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+
 	slog.Info("starting server",
 		slog.String("port", cfg.Port),
 		slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
 		slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
 	)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		slog.Error("failed to start server", slog.String("error", err.Error()))
-		os.Exit(1)
+
+	select {
+	case sig := <-quit:
+		slog.Info("shutdown signal received", slog.String("signal", sig.String()))
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown server", slog.String("error", err.Error()))
+			return 1
+		}
+		return 0
+
+	case err := <-serverErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return 0
+		}
+		slog.Error("server exited with error", slog.String("error", err.Error()))
+		return 1
 	}
 }
