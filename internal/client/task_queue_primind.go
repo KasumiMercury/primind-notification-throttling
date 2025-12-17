@@ -74,6 +74,7 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
 			slog.Debug("retrying task registration",
 				slog.String("remind_id", task.RemindID),
+				slog.String("user_id", task.UserID),
 				slog.Int("attempt", attempt+1),
 				slog.Duration("backoff", backoff),
 			)
@@ -84,7 +85,7 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 			}
 		}
 
-		resp, err := c.doRequest(ctx, url, reqBody, task.RemindID)
+		resp, err := c.doRequest(ctx, url, reqBody, task.RemindID, task.UserID)
 		if err == nil {
 			return resp, nil
 		}
@@ -93,16 +94,18 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 
 	slog.Error("all retries exhausted for task registration",
 		slog.String("remind_id", task.RemindID),
+		slog.String("user_id", task.UserID),
 		slog.Int("max_retries", c.maxRetries),
 		slog.String("error", lastErr.Error()),
 	)
 	return nil, fmt.Errorf("failed to register task after %d retries: %w", c.maxRetries, lastErr)
 }
 
-func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody []byte, remindID string) (*TaskResponse, error) {
+func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody []byte, remindID, userID string) (*TaskResponse, error) {
 	slog.Debug("registering notification to Primind Tasks",
 		slog.String("url", url),
 		slog.String("remind_id", remindID),
+		slog.String("user_id", userID),
 	)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
@@ -115,6 +118,7 @@ func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody 
 	if err != nil {
 		slog.Warn("failed to send request to Primind Tasks",
 			slog.String("remind_id", remindID),
+			slog.String("user_id", userID),
 			slog.String("error", err.Error()),
 		)
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -124,6 +128,7 @@ func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		slog.Warn("unexpected status code from Primind Tasks",
 			slog.String("remind_id", remindID),
+			slog.String("user_id", userID),
 			slog.Int("status_code", resp.StatusCode),
 		)
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -140,6 +145,7 @@ func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody 
 	slog.Info("notification task registered to Primind Tasks",
 		slog.String("task_name", primindResp.Name),
 		slog.String("remind_id", remindID),
+		slog.String("user_id", userID),
 	)
 
 	return &TaskResponse{

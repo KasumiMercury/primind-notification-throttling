@@ -90,6 +90,7 @@ func (c *CloudTasksClient) RegisterNotification(ctx context.Context, task *Notif
 			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
 			slog.Debug("retrying task registration",
 				slog.String("remind_id", task.RemindID),
+				slog.String("user_id", task.UserID),
 				slog.Int("attempt", attempt+1),
 				slog.Duration("backoff", backoff),
 			)
@@ -100,7 +101,7 @@ func (c *CloudTasksClient) RegisterNotification(ctx context.Context, task *Notif
 			}
 		}
 
-		resp, err := c.createTask(ctx, req, task.RemindID)
+		resp, err := c.createTask(ctx, req, task.RemindID, task.UserID)
 		if err == nil {
 			return resp, nil
 		}
@@ -109,22 +110,25 @@ func (c *CloudTasksClient) RegisterNotification(ctx context.Context, task *Notif
 
 	slog.Error("all retries exhausted for task registration",
 		slog.String("remind_id", task.RemindID),
+		slog.String("user_id", task.UserID),
 		slog.Int("max_retries", c.maxRetries),
 		slog.String("error", lastErr.Error()),
 	)
 	return nil, fmt.Errorf("failed to register task after %d retries: %w", c.maxRetries, lastErr)
 }
 
-func (c *CloudTasksClient) createTask(ctx context.Context, req *taskspb.CreateTaskRequest, remindID string) (*TaskResponse, error) {
+func (c *CloudTasksClient) createTask(ctx context.Context, req *taskspb.CreateTaskRequest, remindID, userID string) (*TaskResponse, error) {
 	slog.Debug("registering notification to Cloud Tasks",
 		slog.String("queue_path", req.Parent),
 		slog.String("remind_id", remindID),
+		slog.String("user_id", userID),
 	)
 
 	createdTask, err := c.client.CreateTask(ctx, req)
 	if err != nil {
 		slog.Warn("failed to create cloud task",
 			slog.String("remind_id", remindID),
+			slog.String("user_id", userID),
 			slog.String("error", err.Error()),
 		)
 		return nil, fmt.Errorf("failed to create cloud task: %w", err)
@@ -133,6 +137,7 @@ func (c *CloudTasksClient) createTask(ctx context.Context, req *taskspb.CreateTa
 	slog.Info("notification task registered to Cloud Tasks",
 		slog.String("task_name", createdTask.Name),
 		slog.String("remind_id", remindID),
+		slog.String("user_id", userID),
 	)
 
 	var scheduleTime, createTime time.Time
