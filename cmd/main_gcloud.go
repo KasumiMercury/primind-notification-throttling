@@ -1,8 +1,9 @@
-//go:build !gcloud
+//go:build gcloud
 
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -34,25 +35,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := context.Background()
+
 	// Initialize dependencies
 	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
 
-	// Initialize Primind Tasks client
-	var taskQueue client.TaskQueue
-	if cfg.TaskQueue.PrimindTasksURL != "" {
-		taskQueue = client.NewPrimindTasksClient(
-			cfg.TaskQueue.PrimindTasksURL,
-			cfg.TaskQueue.QueueName,
-			cfg.TaskQueue.MaxRetries,
-		)
-		slog.Info("task queue initialized",
-			slog.String("type", "primind_tasks"),
-			slog.String("url", cfg.TaskQueue.PrimindTasksURL),
-			slog.String("queue", cfg.TaskQueue.QueueName),
-		)
-	} else {
-		slog.Warn("PRIMIND_TASKS_URL not set, task queue registration disabled")
+	// Initialize Cloud Tasks client
+	cloudTasksClient, err := client.NewCloudTasksClient(ctx, client.CloudTasksConfig{
+		ProjectID:  cfg.TaskQueue.GCloudProjectID,
+		LocationID: cfg.TaskQueue.GCloudLocationID,
+		QueueID:    cfg.TaskQueue.GCloudQueueID,
+		TargetURL:  cfg.TaskQueue.GCloudTargetURL,
+		MaxRetries: cfg.TaskQueue.MaxRetries,
+	})
+	if err != nil {
+		slog.Error("failed to create cloud tasks client", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
+	defer cloudTasksClient.Close()
+
+	slog.Info("task queue initialized",
+		slog.String("type", "cloud_tasks"),
+		slog.String("project", cfg.TaskQueue.GCloudProjectID),
+		slog.String("location", cfg.TaskQueue.GCloudLocationID),
+		slog.String("queue", cfg.TaskQueue.GCloudQueueID),
+	)
+
+	var taskQueue client.TaskQueue = cloudTasksClient
 
 	throttleService := service.NewThrottleService(remindTimeClient, taskQueue)
 	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
