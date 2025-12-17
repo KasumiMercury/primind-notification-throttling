@@ -3,12 +3,13 @@ package client
 import "time"
 
 type NotificationTask struct {
-	RemindID   string    `json:"remind_id"`
-	UserID     string    `json:"user_id"`
-	TaskID     string    `json:"task_id"`
-	TaskType   string    `json:"task_type"`
-	FCMTokens  []string  `json:"fcm_tokens"`
-	ScheduleAt time.Time `json:"schedule_at"`
+	RemindID   string    `json:"-"`
+	UserID     string    `json:"-"`
+	ScheduleAt time.Time `json:"-"`
+
+	FCMTokens []string `json:"tokens"`
+	TaskID    string   `json:"task_id"`
+	TaskType  string   `json:"task_type"`
 }
 
 type TaskResponse struct {
