@@ -31,7 +31,7 @@ func (c *RemindTimeClient) GetRemindsByTimeRange(ctx context.Context, start, end
 		return nil, fmt.Errorf("failed to parse base URL: %w", err)
 	}
 
-	u.Path = "/api/v1/"
+	u.Path = "/api/v1/reminds"
 	q := u.Query()
 	q.Set("start", start.Format(time.RFC3339))
 	q.Set("end", end.Format(time.RFC3339))
