@@ -31,16 +31,16 @@ func TestClassifyByTaskType(t *testing.T) {
 		{
 			name: "classify each task type",
 			reminds: []client.RemindResponse{
-				{ID: "1", TaskType: "Urgency"},
-				{ID: "2", TaskType: "Scheduled"},
-				{ID: "3", TaskType: "Normal"},
-				{ID: "4", TaskType: "Low"},
+				{ID: "1", TaskType: "urgent"},
+				{ID: "2", TaskType: "scheduled"},
+				{ID: "3", TaskType: "normal"},
+				{ID: "4", TaskType: "low"},
 			},
 			expected: &ClassifiedReminds{
-				Urgency:   []client.RemindResponse{{ID: "1", TaskType: "Urgency"}},
-				Scheduled: []client.RemindResponse{{ID: "2", TaskType: "Scheduled"}},
-				Normal:    []client.RemindResponse{{ID: "3", TaskType: "Normal"}},
-				Low:       []client.RemindResponse{{ID: "4", TaskType: "Low"}},
+				Urgency:   []client.RemindResponse{{ID: "1", TaskType: "urgent"}},
+				Scheduled: []client.RemindResponse{{ID: "2", TaskType: "scheduled"}},
+				Normal:    []client.RemindResponse{{ID: "3", TaskType: "normal"}},
+				Low:       []client.RemindResponse{{ID: "4", TaskType: "low"}},
 			},
 		},
 		{
@@ -62,17 +62,17 @@ func TestClassifyByTaskType(t *testing.T) {
 		{
 			name: "multiple reminds of same type",
 			reminds: []client.RemindResponse{
-				{ID: "1", TaskType: "Urgency"},
-				{ID: "2", TaskType: "Urgency"},
-				{ID: "3", TaskType: "Normal"},
+				{ID: "1", TaskType: "urgent"},
+				{ID: "2", TaskType: "urgent"},
+				{ID: "3", TaskType: "normal"},
 			},
 			expected: &ClassifiedReminds{
 				Urgency: []client.RemindResponse{
-					{ID: "1", TaskType: "Urgency"},
-					{ID: "2", TaskType: "Urgency"},
+					{ID: "1", TaskType: "urgent"},
+					{ID: "2", TaskType: "urgent"},
 				},
 				Scheduled: []client.RemindResponse{},
-				Normal:    []client.RemindResponse{{ID: "3", TaskType: "Normal"}},
+				Normal:    []client.RemindResponse{{ID: "3", TaskType: "normal"}},
 				Low:       []client.RemindResponse{},
 			},
 		},

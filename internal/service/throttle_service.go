@@ -12,10 +12,10 @@ import (
 type TaskType string
 
 const (
-	TaskTypeUrgency   TaskType = "Urgency"
-	TaskTypeScheduled TaskType = "Scheduled"
-	TaskTypeNormal    TaskType = "Normal"
-	TaskTypeLow       TaskType = "Low"
+	TaskTypeUrgent    TaskType = "urgent"
+	TaskTypeScheduled TaskType = "scheduled"
+	TaskTypeNormal    TaskType = "normal"
+	TaskTypeLow       TaskType = "low"
 )
 
 type ClassifiedReminds struct {
@@ -181,7 +181,7 @@ func (s *ThrottleService) ClassifyByTaskType(reminds []client.RemindResponse) *C
 
 	for _, remind := range reminds {
 		switch TaskType(remind.TaskType) {
-		case TaskTypeUrgency:
+		case TaskTypeUrgent:
 			classified.Urgency = append(classified.Urgency, remind)
 		case TaskTypeScheduled:
 			classified.Scheduled = append(classified.Scheduled, remind)
