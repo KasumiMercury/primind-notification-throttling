@@ -87,7 +87,7 @@ func (c *RemindTimeClient) UpdateThrottled(ctx context.Context, id string, throt
 		return fmt.Errorf("failed to parse base URL: %w", err)
 	}
 
-	u.Path = fmt.Sprintf("/api/v1/%s/throttled", id)
+	u.Path = fmt.Sprintf("/api/v1/reminds/%s/throttled", id)
 
 	slog.Debug("updating throttled flag",
 		slog.String("remind_id", id),
