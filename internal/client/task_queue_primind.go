@@ -6,12 +6,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
+
+	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
+	notifyv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/notify/v1"
+	taskqueuev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/taskqueue/v1"
+	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 )
 
 type PrimindTasksClient struct {
@@ -36,16 +42,22 @@ func NewPrimindTasksClient(baseURL, queueName string, maxRetries int) *PrimindTa
 }
 
 func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *NotificationTask) (*TaskResponse, error) {
-	payload, err := json.Marshal(task)
+	notifyReq := &notifyv1.NotificationRequest{
+		Tokens:   task.FCMTokens,
+		TaskId:   task.TaskID,
+		TaskType: stringToTaskType(task.TaskType),
+	}
+
+	payload, err := pjson.Marshal(notifyReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal notification task: %w", err)
+		return nil, fmt.Errorf("failed to marshal notification request: %w", err)
 	}
 
 	encodedBody := base64.StdEncoding.EncodeToString(payload)
 
-	primindReq := PrimindTaskRequest{
-		Task: PrimindTask{
-			HTTPRequest: PrimindHTTPRequest{
+	taskReq := &taskqueuev1.CreateTaskRequest{
+		Task: &taskqueuev1.Task{
+			HttpRequest: &taskqueuev1.HTTPRequest{
 				Body: encodedBody,
 				Headers: map[string]string{
 					"Content-Type": "application/json",
@@ -55,12 +67,12 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 	}
 
 	if !task.ScheduleAt.IsZero() {
-		primindReq.Task.ScheduleTime = task.ScheduleAt.Format(time.RFC3339)
+		taskReq.Task.ScheduleTime = task.ScheduleAt.Format(time.RFC3339)
 	}
 
-	reqBody, err := json.Marshal(primindReq)
+	reqBody, err := pjson.Marshal(taskReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal primind request: %w", err)
+		return nil, fmt.Errorf("failed to marshal task request: %w", err)
 	}
 
 	url := fmt.Sprintf("%s/tasks", c.baseURL)
@@ -134,23 +146,36 @@ func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody 
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var primindResp PrimindTaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&primindResp); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var protoResp taskqueuev1.CreateTaskResponse
+	if err := pjson.Unmarshal(body, &protoResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	scheduleTime, _ := time.Parse(time.RFC3339, primindResp.ScheduleTime)
-	createTime, _ := time.Parse(time.RFC3339, primindResp.CreateTime)
+	scheduleTime, _ := time.Parse(time.RFC3339, protoResp.ScheduleTime)
+	createTime, _ := time.Parse(time.RFC3339, protoResp.CreateTime)
 
 	slog.Info("notification task registered to Primind Tasks",
-		slog.String("task_name", primindResp.Name),
+		slog.String("task_name", protoResp.Name),
 		slog.String("remind_id", remindID),
 		slog.String("user_id", userID),
 	)
 
 	return &TaskResponse{
-		Name:         primindResp.Name,
+		Name:         protoResp.Name,
 		ScheduleTime: scheduleTime,
 		CreateTime:   createTime,
 	}, nil
+}
+
+func stringToTaskType(s string) commonv1.TaskType {
+	upper := "TASK_TYPE_" + strings.ToUpper(s)
+	if v, ok := commonv1.TaskType_value[upper]; ok {
+		return commonv1.TaskType(v)
+	}
+	return commonv1.TaskType_TASK_TYPE_UNSPECIFIED
 }
