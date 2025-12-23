@@ -1,0 +1,21 @@
+version: v2
+inputs:
+  - directory: proto
+    paths:
+      - proto/common/v1
+      - proto/remind/v1
+      - proto/notify/v1
+      - proto/taskqueue/v1
+      - proto/throttle/v1
+plugins:
+  - local: protoc-gen-go
+    out: internal/gen
+    opt: paths=source_relative
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/KasumiMercury/primind-notification-throttling/internal/gen
+  disable:
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
