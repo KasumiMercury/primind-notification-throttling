@@ -44,7 +44,8 @@ func run() int {
 		return 1
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialize dependencies
 	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
@@ -78,6 +79,7 @@ func run() int {
 
 	throttleService := service.NewThrottleService(remindTimeClient, taskQueue)
 	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
+	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
 	// Setup router
 	r := gin.Default()
@@ -86,6 +88,7 @@ func run() int {
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/throttle", throttleHandler.HandleThrottle)
+		v1.POST("/remind/cancel", remindCancelHandler.HandleRemindCancel)
 	}
 
 	srv := &http.Server{
@@ -95,29 +98,31 @@ func run() int {
 
 	serverErr := make(chan error, 1)
 	go func() {
+		slog.Info("starting server",
+			slog.String("port", cfg.Port),
+			slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
+			slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
+		)
 		serverErr <- srv.ListenAndServe()
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
-	slog.Info("starting server",
-		slog.String("port", cfg.Port),
-		slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
-		slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
-	)
-
 	select {
 	case sig := <-quit:
 		slog.Info("shutdown signal received", slog.String("signal", sig.String()))
+		cancel()
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("failed to shutdown server", slog.String("error", err.Error()))
 			return 1
 		}
+
+		slog.Info("server exited properly")
 		return 0
 
 	case err := <-serverErr:
