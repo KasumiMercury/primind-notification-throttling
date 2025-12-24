@@ -3,8 +3,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -56,6 +62,7 @@ func main() {
 
 	throttleService := service.NewThrottleService(remindTimeClient, taskQueue)
 	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
+	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
 	// Setup router
 	r := gin.Default()
@@ -64,16 +71,45 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/throttle", throttleHandler.HandleThrottle)
+		v1.POST("/remind/cancel", remindCancelHandler.HandleRemindCancel)
+	}
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
 	}
 
 	// Start server
-	slog.Info("starting server",
-		slog.String("port", cfg.Port),
-		slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
-		slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
-	)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		slog.Error("failed to start server", slog.String("error", err.Error()))
-		os.Exit(1)
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("starting server",
+			slog.String("port", cfg.Port),
+			slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
+			slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
+		)
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-quit:
+		slog.Info("received shutdown signal", slog.String("signal", sig.String()))
+	case err := <-serverErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server error", slog.String("error", err.Error()))
+		}
 	}
+
+	slog.Info("shutting down server")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("failed to shutdown server", slog.String("error", err.Error()))
+	}
+
+	slog.Info("server exited properly")
 }

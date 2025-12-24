@@ -58,7 +58,18 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 }
 
 func respondProtoError(c *gin.Context, status int, message string) {
-	c.JSON(status, gin.H{"error": message})
+	resp := &throttlev1.ErrorResponse{
+		Error:   "processing_error",
+		Message: message,
+	}
+
+	respBytes, err := pjson.Marshal(resp)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.Data(status, "application/json", respBytes)
 }
 
 func respondProtoThrottleResponse(c *gin.Context, status int, result *service.ThrottleResponse) {

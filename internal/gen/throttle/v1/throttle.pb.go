@@ -7,6 +7,7 @@
 package throttlev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -246,11 +247,186 @@ func (x *NotificationTask) GetScheduleAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// CancelRemindRequest is sent when a remind is cancelled
+type CancelRemindRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	DeletedCount  int64                  `protobuf:"varint,3,opt,name=deleted_count,json=deletedCount,proto3" json:"deleted_count,omitempty"`
+	CancelledAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelRemindRequest) Reset() {
+	*x = CancelRemindRequest{}
+	mi := &file_throttle_v1_throttle_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelRemindRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelRemindRequest) ProtoMessage() {}
+
+func (x *CancelRemindRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_throttle_v1_throttle_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelRemindRequest.ProtoReflect.Descriptor instead.
+func (*CancelRemindRequest) Descriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CancelRemindRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *CancelRemindRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *CancelRemindRequest) GetDeletedCount() int64 {
+	if x != nil {
+		return x.DeletedCount
+	}
+	return 0
+}
+
+func (x *CancelRemindRequest) GetCancelledAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CancelledAt
+	}
+	return nil
+}
+
+// CancelRemindResponse is returned after processing cancellation
+type CancelRemindResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelRemindResponse) Reset() {
+	*x = CancelRemindResponse{}
+	mi := &file_throttle_v1_throttle_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelRemindResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelRemindResponse) ProtoMessage() {}
+
+func (x *CancelRemindResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_throttle_v1_throttle_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelRemindResponse.ProtoReflect.Descriptor instead.
+func (*CancelRemindResponse) Descriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CancelRemindResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CancelRemindResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+// ErrorResponse for error responses
+type ErrorResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorResponse) Reset() {
+	*x = ErrorResponse{}
+	mi := &file_throttle_v1_throttle_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorResponse) ProtoMessage() {}
+
+func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_throttle_v1_throttle_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
+func (*ErrorResponse) Descriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ErrorResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ErrorResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_throttle_v1_throttle_proto protoreflect.FileDescriptor
 
 const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\n" +
-	"\x1athrottle/v1/throttle.proto\x12\vthrottle.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16common/v1/common.proto\"\xcb\x01\n" +
+	"\x1athrottle/v1/throttle.proto\x12\vthrottle.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16common/v1/common.proto\"\xcb\x01\n" +
 	"\x12ThrottleResultItem\x12\x1b\n" +
 	"\tremind_id\x18\x01 \x01(\tR\bremindId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x120\n" +
@@ -270,7 +446,18 @@ const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x120\n" +
 	"\ttask_type\x18\x03 \x01(\x0e2\x13.common.v1.TaskTypeR\btaskType\x12;\n" +
 	"\vschedule_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"scheduleAtB\xcb\x01\n" +
+	"scheduleAt\"\xc8\x01\n" +
+	"\x13CancelRemindRequest\x12!\n" +
+	"\atask_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12!\n" +
+	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\x12,\n" +
+	"\rdeleted_count\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02(\x00R\fdeletedCount\x12=\n" +
+	"\fcancelled_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcancelledAt\"J\n" +
+	"\x14CancelRemindResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"?\n" +
+	"\rErrorResponse\x12\x14\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessageB\xcb\x01\n" +
 	"\x0fcom.throttle.v1B\rThrottleProtoP\x01Z\\github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1;throttlev1\xa2\x02\x03TXX\xaa\x02\vThrottle.V1\xca\x02\vThrottle\\V1\xe2\x02\x17Throttle\\V1\\GPBMetadata\xea\x02\fThrottle::V1b\x06proto3"
 
 var (
@@ -285,24 +472,28 @@ func file_throttle_v1_throttle_proto_rawDescGZIP() []byte {
 	return file_throttle_v1_throttle_proto_rawDescData
 }
 
-var file_throttle_v1_throttle_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_throttle_v1_throttle_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_throttle_v1_throttle_proto_goTypes = []any{
 	(*ThrottleResultItem)(nil),    // 0: throttle.v1.ThrottleResultItem
 	(*ThrottleResponse)(nil),      // 1: throttle.v1.ThrottleResponse
 	(*NotificationTask)(nil),      // 2: throttle.v1.NotificationTask
-	(v1.TaskType)(0),              // 3: common.v1.TaskType
-	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
+	(*CancelRemindRequest)(nil),   // 3: throttle.v1.CancelRemindRequest
+	(*CancelRemindResponse)(nil),  // 4: throttle.v1.CancelRemindResponse
+	(*ErrorResponse)(nil),         // 5: throttle.v1.ErrorResponse
+	(v1.TaskType)(0),              // 6: common.v1.TaskType
+	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
 var file_throttle_v1_throttle_proto_depIdxs = []int32{
-	3, // 0: throttle.v1.ThrottleResultItem.task_type:type_name -> common.v1.TaskType
+	6, // 0: throttle.v1.ThrottleResultItem.task_type:type_name -> common.v1.TaskType
 	0, // 1: throttle.v1.ThrottleResponse.results:type_name -> throttle.v1.ThrottleResultItem
-	3, // 2: throttle.v1.NotificationTask.task_type:type_name -> common.v1.TaskType
-	4, // 3: throttle.v1.NotificationTask.schedule_at:type_name -> google.protobuf.Timestamp
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6, // 2: throttle.v1.NotificationTask.task_type:type_name -> common.v1.TaskType
+	7, // 3: throttle.v1.NotificationTask.schedule_at:type_name -> google.protobuf.Timestamp
+	7, // 4: throttle.v1.CancelRemindRequest.cancelled_at:type_name -> google.protobuf.Timestamp
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_throttle_v1_throttle_proto_init() }
@@ -316,7 +507,7 @@ func file_throttle_v1_throttle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_throttle_v1_throttle_proto_rawDesc), len(file_throttle_v1_throttle_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
