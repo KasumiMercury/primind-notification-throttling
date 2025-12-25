@@ -6,4 +6,5 @@ import "context"
 
 type TaskQueue interface {
 	RegisterNotification(ctx context.Context, task *NotificationTask) (*TaskResponse, error)
+	DeleteTask(ctx context.Context, taskID string) error
 }

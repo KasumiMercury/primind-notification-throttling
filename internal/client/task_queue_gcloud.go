@@ -12,6 +12,8 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	taskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -62,7 +64,11 @@ func (c *CloudTasksClient) RegisterNotification(ctx context.Context, task *Notif
 		return nil, fmt.Errorf("failed to marshal notification task: %w", err)
 	}
 
+	taskName := fmt.Sprintf("projects/%s/locations/%s/queues/%s/tasks/%s",
+		c.projectID, c.locationID, c.queueID, task.RemindID)
+
 	cloudTask := &taskspb.Task{
+		Name: taskName,
 		MessageType: &taskspb.Task_HttpRequest{
 			HttpRequest: &taskspb.HttpRequest{
 				HttpMethod: taskspb.HttpMethod_POST,
@@ -157,4 +163,71 @@ func (c *CloudTasksClient) createTask(ctx context.Context, req *taskspb.CreateTa
 
 func (c *CloudTasksClient) Close() error {
 	return c.client.Close()
+}
+
+func (c *CloudTasksClient) DeleteTask(ctx context.Context, taskID string) error {
+	taskPath := fmt.Sprintf("projects/%s/locations/%s/queues/%s/tasks/%s",
+		c.projectID, c.locationID, c.queueID, taskID)
+
+	var lastErr error
+	for attempt := 0; attempt < c.maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
+			slog.Debug("retrying task deletion",
+				slog.String("task_id", taskID),
+				slog.Int("attempt", attempt+1),
+				slog.Duration("backoff", backoff),
+			)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		err := c.deleteTask(ctx, taskPath, taskID)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+
+	slog.Error("all retries exhausted for task deletion",
+		slog.String("task_id", taskID),
+		slog.Int("max_retries", c.maxRetries),
+		slog.String("error", lastErr.Error()),
+	)
+	return fmt.Errorf("failed to delete task after %d retries: %w", c.maxRetries, lastErr)
+}
+
+func (c *CloudTasksClient) deleteTask(ctx context.Context, taskPath, taskID string) error {
+	slog.Debug("deleting task from Cloud Tasks",
+		slog.String("task_path", taskPath),
+		slog.String("task_id", taskID),
+	)
+
+	req := &taskspb.DeleteTaskRequest{
+		Name: taskPath,
+	}
+
+	err := c.client.DeleteTask(ctx, req)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			slog.Info("task not found in Cloud Tasks (may have been processed)",
+				slog.String("task_id", taskID),
+			)
+			return nil
+		}
+
+		slog.Warn("failed to delete cloud task",
+			slog.String("task_id", taskID),
+			slog.String("error", err.Error()),
+		)
+		return fmt.Errorf("failed to delete cloud task: %w", err)
+	}
+
+	slog.Info("task deleted from Cloud Tasks",
+		slog.String("task_id", taskID),
+	)
+	return nil
 }

@@ -40,6 +40,20 @@ func (m *MockTaskQueue) EXPECT() *MockTaskQueueMockRecorder {
 	return m.recorder
 }
 
+// DeleteTask mocks base method.
+func (m *MockTaskQueue) DeleteTask(ctx context.Context, taskID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTask", ctx, taskID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTask indicates an expected call of DeleteTask.
+func (mr *MockTaskQueueMockRecorder) DeleteTask(ctx, taskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTask", reflect.TypeOf((*MockTaskQueue)(nil).DeleteTask), ctx, taskID)
+}
+
 // RegisterNotification mocks base method.
 func (m *MockTaskQueue) RegisterNotification(ctx context.Context, task *NotificationTask) (*TaskResponse, error) {
 	m.ctrl.T.Helper()

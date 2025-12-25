@@ -57,6 +57,7 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 
 	taskReq := &taskqueuev1.CreateTaskRequest{
 		Task: &taskqueuev1.Task{
+			Name: task.RemindID, // Use RemindID as task name for deletion
 			HttpRequest: &taskqueuev1.HTTPRequest{
 				Body: encodedBody,
 				Headers: map[string]string{
@@ -178,4 +179,85 @@ func stringToTaskType(s string) commonv1.TaskType {
 		return commonv1.TaskType(v)
 	}
 	return commonv1.TaskType_TASK_TYPE_UNSPECIFIED
+}
+
+func (c *PrimindTasksClient) DeleteTask(ctx context.Context, taskID string) error {
+	url := fmt.Sprintf("%s/tasks/%s", c.baseURL, taskID)
+	if c.queueName != "" && c.queueName != "default" {
+		url = fmt.Sprintf("%s/tasks/%s/%s", c.baseURL, c.queueName, taskID)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < c.maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
+			slog.Debug("retrying task deletion",
+				slog.String("task_id", taskID),
+				slog.Int("attempt", attempt+1),
+				slog.Duration("backoff", backoff),
+			)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		err := c.doDeleteRequest(ctx, url, taskID)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+
+	slog.Error("all retries exhausted for task deletion",
+		slog.String("task_id", taskID),
+		slog.Int("max_retries", c.maxRetries),
+		slog.String("error", lastErr.Error()),
+	)
+	return fmt.Errorf("failed to delete task after %d retries: %w", c.maxRetries, lastErr)
+}
+
+func (c *PrimindTasksClient) doDeleteRequest(ctx context.Context, url, taskID string) error {
+	slog.Debug("deleting task from Primind Tasks",
+		slog.String("url", url),
+		slog.String("task_id", taskID),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		slog.Warn("failed to send delete request to Primind Tasks",
+			slog.String("task_id", taskID),
+			slog.String("error", err.Error()),
+		)
+		return fmt.Errorf("failed to send delete request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		slog.Info("task not found (may have been processed)",
+			slog.String("task_id", taskID),
+		)
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		slog.Warn("unexpected status code from Primind Tasks delete",
+			slog.String("task_id", taskID),
+			slog.Int("status_code", resp.StatusCode),
+			slog.String("body", string(body)),
+		)
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	slog.Info("task deleted from Primind Tasks",
+		slog.String("task_id", taskID),
+	)
+	return nil
 }
