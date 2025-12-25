@@ -57,7 +57,11 @@ func run() int {
 		return 1
 	}
 	if cleanup != nil {
-		defer cleanup()
+		defer func() {
+			if err := cleanup(); err != nil {
+				slog.Error("task queue cleanup error", slog.String("error", err.Error()))
+			}
+		}()
 	}
 
 	// Create services and handlers
