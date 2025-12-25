@@ -249,11 +249,13 @@ func (x *NotificationTask) GetScheduleAt() *timestamppb.Timestamp {
 
 // CancelRemindRequest is sent when a remind is cancelled
 type CancelRemindRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	DeletedCount  int64                  `protobuf:"varint,3,opt,name=deleted_count,json=deletedCount,proto3" json:"deleted_count,omitempty"`
-	CancelledAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	TaskId       string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	UserId       string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	DeletedCount int64                  `protobuf:"varint,3,opt,name=deleted_count,json=deletedCount,proto3" json:"deleted_count,omitempty"`
+	CancelledAt  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"`
+	// List of remind IDs that were deleted, used to cancel queued notifications
+	RemindIds     []string `protobuf:"bytes,5,rep,name=remind_ids,json=remindIds,proto3" json:"remind_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -312,6 +314,13 @@ func (x *CancelRemindRequest) GetDeletedCount() int64 {
 func (x *CancelRemindRequest) GetCancelledAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CancelledAt
+	}
+	return nil
+}
+
+func (x *CancelRemindRequest) GetRemindIds() []string {
+	if x != nil {
+		return x.RemindIds
 	}
 	return nil
 }
@@ -446,12 +455,14 @@ const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x120\n" +
 	"\ttask_type\x18\x03 \x01(\x0e2\x13.common.v1.TaskTypeR\btaskType\x12;\n" +
 	"\vschedule_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"scheduleAt\"\xc8\x01\n" +
+	"scheduleAt\"\xe7\x01\n" +
 	"\x13CancelRemindRequest\x12!\n" +
 	"\atask_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12!\n" +
 	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\x12,\n" +
 	"\rdeleted_count\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02(\x00R\fdeletedCount\x12=\n" +
-	"\fcancelled_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcancelledAt\"J\n" +
+	"\fcancelled_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcancelledAt\x12\x1d\n" +
+	"\n" +
+	"remind_ids\x18\x05 \x03(\tR\tremindIds\"J\n" +
 	"\x14CancelRemindResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"?\n" +
