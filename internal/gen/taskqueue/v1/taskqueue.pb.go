@@ -253,6 +253,89 @@ func (x *CreateTaskResponse) GetCreateTime() string {
 	return ""
 }
 
+// DeleteTaskRequest is sent to delete a queued task
+type DeleteTaskRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Task name/ID to delete (required)
+	Name          string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteTaskRequest) Reset() {
+	*x = DeleteTaskRequest{}
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteTaskRequest) ProtoMessage() {}
+
+func (x *DeleteTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteTaskRequest.ProtoReflect.Descriptor instead.
+func (*DeleteTaskRequest) Descriptor() ([]byte, []int) {
+	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DeleteTaskRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+// DeleteTaskResponse is empty on success (matches Cloud Tasks)
+type DeleteTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteTaskResponse) Reset() {
+	*x = DeleteTaskResponse{}
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteTaskResponse) ProtoMessage() {}
+
+func (x *DeleteTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteTaskResponse.ProtoReflect.Descriptor instead.
+func (*DeleteTaskResponse) Descriptor() ([]byte, []int) {
+	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{5}
+}
+
 // TaskPayload is the internal payload structure stored in the queue
 type TaskPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -265,7 +348,7 @@ type TaskPayload struct {
 
 func (x *TaskPayload) Reset() {
 	*x = TaskPayload{}
-	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[4]
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +360,7 @@ func (x *TaskPayload) String() string {
 func (*TaskPayload) ProtoMessage() {}
 
 func (x *TaskPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[4]
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +373,7 @@ func (x *TaskPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskPayload.ProtoReflect.Descriptor instead.
 func (*TaskPayload) Descriptor() ([]byte, []int) {
-	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{4}
+	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *TaskPayload) GetBody() []byte {
@@ -326,7 +409,7 @@ type ErrorResponse struct {
 
 func (x *ErrorResponse) Reset() {
 	*x = ErrorResponse{}
-	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[5]
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +421,7 @@ func (x *ErrorResponse) String() string {
 func (*ErrorResponse) ProtoMessage() {}
 
 func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[5]
+	mi := &file_taskqueue_v1_taskqueue_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +434,7 @@ func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
 func (*ErrorResponse) Descriptor() ([]byte, []int) {
-	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{5}
+	return file_taskqueue_v1_taskqueue_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ErrorResponse) GetCode() int32 {
@@ -398,7 +481,10 @@ const file_taskqueue_v1_taskqueue_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rschedule_time\x18\x02 \x01(\tR\fscheduleTime\x12\x1f\n" +
 	"\vcreate_time\x18\x03 \x01(\tR\n" +
-	"createTime\"\xda\x01\n" +
+	"createTime\"/\n" +
+	"\x11DeleteTaskRequest\x12\x1a\n" +
+	"\x04name\x18\x01 \x01(\tB\x06\xbaH\x03\xc8\x01\x01R\x04name\"\x14\n" +
+	"\x12DeleteTaskResponse\"\xda\x01\n" +
 	"\vTaskPayload\x12\x12\n" +
 	"\x04body\x18\x01 \x01(\fR\x04body\x12@\n" +
 	"\aheaders\x18\x02 \x03(\v2&.taskqueue.v1.TaskPayload.HeadersEntryR\aheaders\x129\n" +
@@ -425,29 +511,31 @@ func file_taskqueue_v1_taskqueue_proto_rawDescGZIP() []byte {
 	return file_taskqueue_v1_taskqueue_proto_rawDescData
 }
 
-var file_taskqueue_v1_taskqueue_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_taskqueue_v1_taskqueue_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_taskqueue_v1_taskqueue_proto_goTypes = []any{
 	(*HTTPRequest)(nil),           // 0: taskqueue.v1.HTTPRequest
 	(*Task)(nil),                  // 1: taskqueue.v1.Task
 	(*CreateTaskRequest)(nil),     // 2: taskqueue.v1.CreateTaskRequest
 	(*CreateTaskResponse)(nil),    // 3: taskqueue.v1.CreateTaskResponse
-	(*TaskPayload)(nil),           // 4: taskqueue.v1.TaskPayload
-	(*ErrorResponse)(nil),         // 5: taskqueue.v1.ErrorResponse
-	nil,                           // 6: taskqueue.v1.HTTPRequest.HeadersEntry
-	nil,                           // 7: taskqueue.v1.TaskPayload.HeadersEntry
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*DeleteTaskRequest)(nil),     // 4: taskqueue.v1.DeleteTaskRequest
+	(*DeleteTaskResponse)(nil),    // 5: taskqueue.v1.DeleteTaskResponse
+	(*TaskPayload)(nil),           // 6: taskqueue.v1.TaskPayload
+	(*ErrorResponse)(nil),         // 7: taskqueue.v1.ErrorResponse
+	nil,                           // 8: taskqueue.v1.HTTPRequest.HeadersEntry
+	nil,                           // 9: taskqueue.v1.TaskPayload.HeadersEntry
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
 }
 var file_taskqueue_v1_taskqueue_proto_depIdxs = []int32{
-	6, // 0: taskqueue.v1.HTTPRequest.headers:type_name -> taskqueue.v1.HTTPRequest.HeadersEntry
-	0, // 1: taskqueue.v1.Task.http_request:type_name -> taskqueue.v1.HTTPRequest
-	1, // 2: taskqueue.v1.CreateTaskRequest.task:type_name -> taskqueue.v1.Task
-	7, // 3: taskqueue.v1.TaskPayload.headers:type_name -> taskqueue.v1.TaskPayload.HeadersEntry
-	8, // 4: taskqueue.v1.TaskPayload.created_at:type_name -> google.protobuf.Timestamp
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	8,  // 0: taskqueue.v1.HTTPRequest.headers:type_name -> taskqueue.v1.HTTPRequest.HeadersEntry
+	0,  // 1: taskqueue.v1.Task.http_request:type_name -> taskqueue.v1.HTTPRequest
+	1,  // 2: taskqueue.v1.CreateTaskRequest.task:type_name -> taskqueue.v1.Task
+	9,  // 3: taskqueue.v1.TaskPayload.headers:type_name -> taskqueue.v1.TaskPayload.HeadersEntry
+	10, // 4: taskqueue.v1.TaskPayload.created_at:type_name -> google.protobuf.Timestamp
+	5,  // [5:5] is the sub-list for method output_type
+	5,  // [5:5] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_taskqueue_v1_taskqueue_proto_init() }
@@ -461,7 +549,7 @@ func file_taskqueue_v1_taskqueue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_taskqueue_v1_taskqueue_proto_rawDesc), len(file_taskqueue_v1_taskqueue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
