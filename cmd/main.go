@@ -1,5 +1,3 @@
-//go:build !gcloud
-
 package main
 
 import (
@@ -21,6 +19,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	// Load configuration
 	cfg := config.Load()
 
@@ -30,36 +32,35 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	// Validate configuration
 	if cfg.RemindTimeManagementURL == "" {
 		slog.Error("REMIND_TIME_MANAGEMENT_URL environment variable is required")
-		os.Exit(1)
+		return 1
 	}
 
 	if err := cfg.TaskQueue.Validate(); err != nil {
 		slog.Error("task queue configuration error", slog.String("error", err.Error()))
-		os.Exit(1)
+		return 1
 	}
+
+	// Create cancellable context for cleanup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialize dependencies
 	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
 
-	// Initialize Primind Tasks client
-	var taskQueue client.TaskQueue
-	if cfg.TaskQueue.PrimindTasksURL != "" {
-		taskQueue = client.NewPrimindTasksClient(
-			cfg.TaskQueue.PrimindTasksURL,
-			cfg.TaskQueue.QueueName,
-			cfg.TaskQueue.MaxRetries,
-		)
-		slog.Info("task queue initialized",
-			slog.String("type", "primind_tasks"),
-			slog.String("url", cfg.TaskQueue.PrimindTasksURL),
-			slog.String("queue", cfg.TaskQueue.QueueName),
-		)
-	} else {
-		slog.Warn("PRIMIND_TASKS_URL not set, task queue registration disabled")
+	// Initialize task queue
+	taskQueue, cleanup, err := initTaskQueue(ctx, cfg)
+	if err != nil {
+		slog.Error("failed to initialize task queue", slog.String("error", err.Error()))
+		return 1
+	}
+	if cleanup != nil {
+		defer cleanup()
 	}
 
+	// Create services and handlers
 	throttleService := service.NewThrottleService(remindTimeClient, taskQueue)
 	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
@@ -74,12 +75,13 @@ func main() {
 		v1.POST("/remind/cancel", remindCancelHandler.HandleRemindCancel)
 	}
 
+	// Create HTTP server
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: r,
 	}
 
-	// Start server
+	// Start server in goroutine
 	serverErr := make(chan error, 1)
 	go func() {
 		slog.Info("starting server",
@@ -90,26 +92,31 @@ func main() {
 		serverErr <- srv.ListenAndServe()
 	}()
 
+	// Wait for shutdown signal or server error
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case sig := <-quit:
-		slog.Info("received shutdown signal", slog.String("signal", sig.String()))
-	case err := <-serverErr:
-		if !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", slog.String("error", err.Error()))
+		slog.Info("shutdown signal received", slog.String("signal", sig.String()))
+		cancel()
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown server", slog.String("error", err.Error()))
+			return 1
 		}
+
+		slog.Info("server exited properly")
+		return 0
+
+	case err := <-serverErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return 0
+		}
+		slog.Error("server exited with error", slog.String("error", err.Error()))
+		return 1
 	}
-
-	slog.Info("shutting down server")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("failed to shutdown server", slog.String("error", err.Error()))
-	}
-
-	slog.Info("server exited properly")
 }
