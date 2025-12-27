@@ -45,25 +45,25 @@ func NewThrottleService(remindTimeClient client.RemindTimeRepository, taskQueue 
 func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Time) (*ThrottleResponse, error) {
 	remindsResp, err := s.remindTimeClient.GetRemindsByTimeRange(ctx, start, end)
 	if err != nil {
-		slog.Error("failed to fetch reminds",
+		slog.ErrorContext(ctx, "failed to fetch reminds",
 			slog.String("error", err.Error()),
 		)
 		return nil, err
 	}
 
-	slog.Debug("fetched reminds",
+	slog.DebugContext(ctx, "fetched reminds",
 		slog.Int("total_count", remindsResp.Count),
 	)
 
 	unthrottledReminds := filterUnthrottled(remindsResp.Reminds)
 
-	slog.Debug("filtered unthrottled reminds",
+	slog.DebugContext(ctx, "filtered unthrottled reminds",
 		slog.Int("unthrottled_count", len(unthrottledReminds)),
 	)
 
 	classified := s.ClassifyByTaskType(unthrottledReminds)
 
-	slog.Info("classified reminds",
+	slog.InfoContext(ctx, "classified reminds",
 		slog.Int("urgency", len(classified.Urgency)),
 		slog.Int("scheduled", len(classified.Scheduled)),
 		slog.Int("normal", len(classified.Normal)),
@@ -79,7 +79,7 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 	for _, remind := range allReminds {
 		fcmTokens := s.ExtractFCMTokens(remind.Devices)
 
-		slog.Debug("processing remind",
+		slog.DebugContext(ctx, "processing remind",
 			slog.String("remind_id", remind.ID),
 			slog.String("task_id", remind.TaskID),
 			slog.String("task_type", remind.TaskType),
@@ -95,7 +95,7 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 		}
 
 		if err := s.registerToQueue(ctx, remind, fcmTokens); err != nil {
-			slog.Error("failed to register to queue",
+			slog.ErrorContext(ctx, "failed to register to queue",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
 			)
@@ -112,7 +112,7 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 		}
 
 		if err := s.updateThrottledWithRetry(ctx, remind.ID, true); err != nil {
-			slog.Error("failed to update throttled flag",
+			slog.ErrorContext(ctx, "failed to update throttled flag",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
 			)
@@ -147,7 +147,7 @@ func (s *ThrottleService) updateThrottledWithRetry(ctx context.Context, remindID
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * 100 * time.Millisecond
-			slog.Debug("retrying throttled flag update",
+			slog.DebugContext(ctx, "retrying throttled flag update",
 				slog.String("remind_id", remindID),
 				slog.Bool("throttled", throttled),
 				slog.Int("attempt", attempt+1),
@@ -209,14 +209,14 @@ func (s *ThrottleService) ExtractFCMTokens(devices []client.DeviceResponse) []st
 
 func (s *ThrottleService) registerToQueue(ctx context.Context, remind client.RemindResponse, fcmTokens []string) error {
 	if s.taskQueue == nil {
-		slog.Warn("task queue not configured, skipping queue registration",
+		slog.WarnContext(ctx, "task queue not configured, skipping queue registration",
 			slog.String("remind_id", remind.ID),
 		)
 		return nil
 	}
 
 	if len(fcmTokens) == 0 {
-		slog.Debug("no FCM tokens, skipping queue registration",
+		slog.DebugContext(ctx, "no FCM tokens, skipping queue registration",
 			slog.String("remind_id", remind.ID),
 		)
 		return nil
@@ -236,7 +236,7 @@ func (s *ThrottleService) registerToQueue(ctx context.Context, remind client.Rem
 		return err
 	}
 
-	slog.Debug("notification registered to queue",
+	slog.DebugContext(ctx, "notification registered to queue",
 		slog.String("remind_id", remind.ID),
 		slog.String("task_name", resp.Name),
 		slog.Time("schedule_time", resp.ScheduleTime),
