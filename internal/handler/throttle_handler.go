@@ -34,21 +34,21 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 	start := now
 	end := now.Add(time.Duration(h.config.TimeRangeMinutes) * time.Minute)
 
-	slog.Info("processing throttle request",
+	slog.InfoContext(ctx, "processing throttle request",
 		slog.Time("start", start),
 		slog.Time("end", end),
 	)
 
 	result, err := h.throttleService.ProcessReminds(ctx, start, end)
 	if err != nil {
-		slog.Error("throttle processing failed",
+		slog.ErrorContext(ctx, "throttle processing failed",
 			slog.String("error", err.Error()),
 		)
 		respondProtoError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	slog.Info("throttle completed",
+	slog.InfoContext(ctx, "throttle completed",
 		slog.Int("processed", result.ProcessedCount),
 		slog.Int("success", result.SuccessCount),
 		slog.Int("failed", result.FailedCount),

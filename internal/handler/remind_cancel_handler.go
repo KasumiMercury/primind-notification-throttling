@@ -25,21 +25,21 @@ func NewRemindCancelHandler(throttleService *service.ThrottleService) *RemindCan
 func (h *RemindCancelHandler) HandleRemindCancel(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	slog.Info("handling remind cancel request",
+	slog.InfoContext(ctx, "handling remind cancel request",
 		slog.String("method", c.Request.Method),
 		slog.String("path", c.Request.URL.Path),
 	)
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		slog.Error("failed to read request body", slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "failed to read request body", slog.String("error", err.Error()))
 		respondCancelError(c, http.StatusBadRequest, "read_error", "failed to read request body")
 		return
 	}
 
 	var req throttlev1.CancelRemindRequest
 	if err := pjson.Unmarshal(body, &req); err != nil {
-		slog.Warn("request unmarshal failed",
+		slog.WarnContext(ctx, "request unmarshal failed",
 			slog.String("error", err.Error()),
 			slog.String("path", c.Request.URL.Path),
 		)
@@ -48,7 +48,7 @@ func (h *RemindCancelHandler) HandleRemindCancel(c *gin.Context) {
 	}
 
 	if err := pjson.Validate(&req); err != nil {
-		slog.Warn("request validation failed",
+		slog.WarnContext(ctx, "request validation failed",
 			slog.String("error", err.Error()),
 			slog.String("path", c.Request.URL.Path),
 		)
@@ -56,14 +56,14 @@ func (h *RemindCancelHandler) HandleRemindCancel(c *gin.Context) {
 		return
 	}
 
-	slog.Info("processing remind cancelled event",
+	slog.InfoContext(ctx, "processing remind cancelled event",
 		slog.String("task_id", req.TaskId),
 		slog.String("user_id", req.UserId),
 		slog.Int64("deleted_count", req.DeletedCount),
 	)
 
 	if err := h.throttleService.HandleRemindCancelled(ctx, &req); err != nil {
-		slog.Error("failed to handle remind cancelled event",
+		slog.ErrorContext(ctx, "failed to handle remind cancelled event",
 			slog.String("task_id", req.TaskId),
 			slog.String("error", err.Error()),
 		)
@@ -71,7 +71,7 @@ func (h *RemindCancelHandler) HandleRemindCancel(c *gin.Context) {
 		return
 	}
 
-	slog.Info("remind cancelled event processed successfully",
+	slog.InfoContext(ctx, "remind cancelled event processed successfully",
 		slog.String("task_id", req.TaskId),
 	)
 

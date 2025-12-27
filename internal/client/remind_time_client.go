@@ -13,6 +13,8 @@ import (
 
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	remindv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/remind/v1"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/tracing"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 )
 
@@ -52,6 +54,9 @@ func (c *RemindTimeClient) GetRemindsByTimeRange(ctx context.Context, start, end
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	requestID := logging.ValidateAndExtractRequestID(logging.RequestIDFromContext(ctx))
+	req.Header.Set("x-request-id", requestID)
+	tracing.InjectToHTTPRequest(ctx, req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -126,6 +131,9 @@ func (c *RemindTimeClient) UpdateThrottled(ctx context.Context, id string, throt
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	requestID := logging.ValidateAndExtractRequestID(logging.RequestIDFromContext(ctx))
+	req.Header.Set("x-request-id", requestID)
+	tracing.InjectToHTTPRequest(ctx, req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

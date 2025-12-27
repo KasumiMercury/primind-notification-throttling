@@ -12,6 +12,8 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	taskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/tracing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -67,16 +69,22 @@ func (c *CloudTasksClient) RegisterNotification(ctx context.Context, task *Notif
 	taskName := fmt.Sprintf("projects/%s/locations/%s/queues/%s/tasks/%s",
 		c.projectID, c.locationID, c.queueID, task.RemindID)
 
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"message_type": "notification.send",
+	}
+	tracing.InjectToMap(ctx, headers)
+	requestID := logging.ValidateAndExtractRequestID(logging.RequestIDFromContext(ctx))
+	headers["x-request-id"] = requestID
+
 	cloudTask := &taskspb.Task{
 		Name: taskName,
 		MessageType: &taskspb.Task_HttpRequest{
 			HttpRequest: &taskspb.HttpRequest{
 				HttpMethod: taskspb.HttpMethod_POST,
 				Url:        c.targetURL,
-				Headers: map[string]string{
-					"Content-Type": "application/json",
-				},
-				Body: payload,
+				Headers:    headers,
+				Body:       payload,
 			},
 		},
 	}

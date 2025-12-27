@@ -17,6 +17,8 @@ import (
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	notifyv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/notify/v1"
 	taskqueuev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/taskqueue/v1"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/tracing"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 )
 
@@ -55,14 +57,21 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 
 	encodedBody := base64.StdEncoding.EncodeToString(payload)
 
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"message_type": "notification.send",
+	}
+	tracing.InjectToMap(ctx, headers)
+	requestID := logging.ValidateAndExtractRequestID(logging.RequestIDFromContext(ctx))
+	ctx = logging.WithRequestID(ctx, requestID)
+	headers["x-request-id"] = requestID
+
 	taskReq := &taskqueuev1.CreateTaskRequest{
 		Task: &taskqueuev1.Task{
 			Name: task.RemindID, // Use RemindID as task name for deletion
 			HttpRequest: &taskqueuev1.HTTPRequest{
-				Body: encodedBody,
-				Headers: map[string]string{
-					"Content-Type": "application/json",
-				},
+				Body:    encodedBody,
+				Headers: headers,
 			},
 		},
 	}
@@ -126,6 +135,9 @@ func (c *PrimindTasksClient) doRequest(ctx context.Context, url string, reqBody 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	requestID := logging.ValidateAndExtractRequestID(logging.RequestIDFromContext(ctx))
+	req.Header.Set("x-request-id", requestID)
+	tracing.InjectToHTTPRequest(ctx, req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
