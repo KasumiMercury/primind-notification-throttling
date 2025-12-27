@@ -15,22 +15,39 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
 )
+
+// Version is set via ldflags at build time
+var Version = "dev"
 
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
-	// Load configuration
-	cfg := config.Load()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Initialize slog with JSON handler
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: cfg.LogLevel,
-	}))
-	slog.SetDefault(logger)
+	obs, err := initObservability(ctx)
+	if err != nil {
+		slog.Error("failed to initialize observability", slog.String("error", err.Error()))
+		return 1
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := obs.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("observability shutdown error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.SetDefault(obs.Logger())
+
+	cfg := config.Load()
 
 	// Validate configuration
 	if cfg.RemindTimeManagementURL == "" {
@@ -43,9 +60,11 @@ func run() int {
 		return 1
 	}
 
-	// Create cancellable context for cleanup
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	httpMetrics, err := metrics.NewHTTPMetrics()
+	if err != nil {
+		slog.Error("failed to initialize HTTP metrics", slog.String("error", err.Error()))
+		return 1
+	}
 
 	// Initialize dependencies
 	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
@@ -69,8 +88,25 @@ func run() int {
 	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
-	// Setup router
-	r := gin.Default()
+	// Setup router with observability middleware
+	r := gin.New()
+	r.Use(middleware.Gin(middleware.GinConfig{
+		SkipPaths:  []string{"/health", "/metrics"},
+		Module:     logging.Module("notification-throttling"),
+		Worker:     true,
+		TracerName: "github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware",
+		JobNameResolver: func(c *gin.Context) string {
+			if messageType := c.Request.Header.Get("message_type"); messageType != "" {
+				return messageType
+			}
+			if eventType := c.Request.Header.Get("event_type"); eventType != "" {
+				return eventType
+			}
+			return c.Request.URL.Path
+		},
+		HTTPMetrics: httpMetrics,
+	}))
+	r.Use(middleware.PanicRecoveryGin())
 
 	// API routes
 	v1 := r.Group("/api/v1")
