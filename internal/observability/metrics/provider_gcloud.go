@@ -13,6 +13,10 @@ import (
 )
 
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
+	if os.Getenv("OTEL_EXPORTER_DISABLED") == "true" {
+		return newNoopProvider(cfg), nil
+	}
+
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if projectID == "" {
 		projectID = os.Getenv("GCLOUD_PROJECT_ID")
@@ -36,4 +40,20 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	)
 
 	return &Provider{mp: mp}, nil
+}
+
+func newNoopProvider(cfg Config) *Provider {
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName(cfg.ServiceName),
+		semconv.ServiceVersion(cfg.ServiceVersion),
+		semconv.DeploymentEnvironmentName(cfg.Environment),
+	)
+
+	// MeterProvider without any reader does not export metrics
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+	)
+
+	return &Provider{mp: mp}
 }

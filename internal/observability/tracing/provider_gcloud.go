@@ -14,6 +14,10 @@ import (
 
 // NewProvider creates a TracerProvider with Cloud Trace exporter for GCP environments.
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
+	if os.Getenv("OTEL_EXPORTER_DISABLED") == "true" {
+		return newNoopProvider(cfg), nil
+	}
+
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if projectID == "" {
 		projectID = os.Getenv("GCLOUD_PROJECT_ID")
@@ -39,4 +43,20 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	)
 
 	return &Provider{tp: tp}, nil
+}
+
+func newNoopProvider(cfg Config) *Provider {
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName(cfg.ServiceName),
+		semconv.ServiceVersion(cfg.ServiceVersion),
+		semconv.DeploymentEnvironmentName(cfg.Environment),
+	)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.NeverSample()),
+	)
+
+	return &Provider{tp: tp}
 }

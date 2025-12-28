@@ -4,6 +4,7 @@ package tracing
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -13,9 +14,14 @@ import (
 )
 
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
+	if os.Getenv("OTEL_EXPORTER_DISABLED") == "true" {
+		return newNoopProvider(cfg), nil
+	}
+
+	// When exporter is enabled, endpoint is required
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "localhost:4318"
+		return nil, errors.New("OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_EXPORTER_DISABLED is not set to 'true'")
 	}
 
 	opts := []otlptracehttp.Option{
@@ -55,4 +61,20 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	)
 
 	return &Provider{tp: tp}, nil
+}
+
+func newNoopProvider(cfg Config) *Provider {
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName(cfg.ServiceName),
+		semconv.ServiceVersion(cfg.ServiceVersion),
+		semconv.DeploymentEnvironmentName(cfg.Environment),
+	)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.NeverSample()),
+	)
+
+	return &Provider{tp: tp}
 }

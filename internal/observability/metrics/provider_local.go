@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -14,13 +15,16 @@ import (
 )
 
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
+	if os.Getenv("OTEL_EXPORTER_DISABLED") == "true" {
+		return newNoopProvider(cfg), nil
+	}
+
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
 	if endpoint == "" {
 		endpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	}
-
 	if endpoint == "" {
-		endpoint = "localhost:9090"
+		return nil, errors.New("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_EXPORTER_DISABLED is not set to 'true'")
 	}
 
 	opts := []otlpmetrichttp.Option{
@@ -51,4 +55,20 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	)
 
 	return &Provider{mp: mp}, nil
+}
+
+func newNoopProvider(cfg Config) *Provider {
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName(cfg.ServiceName),
+		semconv.ServiceVersion(cfg.ServiceVersion),
+		semconv.DeploymentEnvironmentName(cfg.Environment),
+	)
+
+	// MeterProvider without any reader does not export metrics
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+	)
+
+	return &Provider{mp: mp}
 }
