@@ -187,15 +187,16 @@ func protoRemindsToClient(protoResp *remindv1.RemindsResponse) *RemindsResponse 
 		}
 
 		reminds = append(reminds, RemindResponse{
-			ID:        r.Id,
-			Time:      remindTime,
-			UserID:    r.UserId,
-			Devices:   devices,
-			TaskID:    r.TaskId,
-			TaskType:  taskTypeToString(r.TaskType),
-			Throttled: r.Throttled,
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
+			ID:               r.Id,
+			Time:             remindTime,
+			UserID:           r.UserId,
+			Devices:          devices,
+			TaskID:           r.TaskId,
+			TaskType:         taskTypeToString(r.TaskType),
+			Throttled:        r.Throttled,
+			SlideWindowWidth: r.GetSlideWindowWidth(),
+			CreatedAt:        createdAt,
+			UpdatedAt:        updatedAt,
 		})
 	}
 

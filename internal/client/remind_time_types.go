@@ -17,15 +17,16 @@ type DeviceResponse struct {
 }
 
 type RemindResponse struct {
-	ID        string           `json:"id"`
-	Time      time.Time        `json:"time"`
-	UserID    string           `json:"user_id"`
-	Devices   []DeviceResponse `json:"devices"`
-	TaskID    string           `json:"task_id"`
-	TaskType  string           `json:"task_type"`
-	Throttled bool             `json:"throttled"`
-	CreatedAt time.Time        `json:"created_at"`
-	UpdatedAt time.Time        `json:"updated_at"`
+	ID               string           `json:"id"`
+	Time             time.Time        `json:"time"`
+	UserID           string           `json:"user_id"`
+	Devices          []DeviceResponse `json:"devices"`
+	TaskID           string           `json:"task_id"`
+	TaskType         string           `json:"task_type"`
+	Throttled        bool             `json:"throttled"`
+	SlideWindowWidth int32            `json:"slide_window_width"` // slide window width in seconds (range: 60-1800)
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 type RemindsResponse struct {
