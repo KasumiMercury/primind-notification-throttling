@@ -2,6 +2,8 @@ package domain
 
 import "context"
 
+//go:generate mockgen -source=throttle_repository.go -destination=throttle_repository_mock.go -package=domain
+
 type ThrottleRepository interface {
 	GetPacketCountForMinute(ctx context.Context, minuteKey string) (int, error)
 	IncrementPacketCount(ctx context.Context, minuteKey string, delta int) error
