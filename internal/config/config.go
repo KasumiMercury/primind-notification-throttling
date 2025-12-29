@@ -10,9 +10,10 @@ import (
 type Config struct {
 	RemindTimeManagementURL string
 	Port                    string
-	TimeRangeMinutes        int
 	LogLevel                slog.Level
 	TaskQueue               TaskQueueConfig
+	Redis                   *RedisConfig
+	Throttle                *ThrottleConfig
 }
 
 type TaskQueueConfig struct {
@@ -27,17 +28,10 @@ type TaskQueueConfig struct {
 	MaxRetries int
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
-	}
-
-	timeRangeMinutes := 10
-	if v := os.Getenv("TIME_RANGE_MINUTES"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			timeRangeMinutes = parsed
-		}
 	}
 
 	queueName := os.Getenv("TASK_QUEUE_NAME")
@@ -52,10 +46,14 @@ func Load() *Config {
 		}
 	}
 
+	redisConfig, err := LoadRedisConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		RemindTimeManagementURL: os.Getenv("REMIND_TIME_MANAGEMENT_URL"),
 		Port:                    port,
-		TimeRangeMinutes:        timeRangeMinutes,
 		LogLevel:                parseLogLevel(os.Getenv("LOG_LEVEL")),
 		TaskQueue: TaskQueueConfig{
 			PrimindTasksURL: os.Getenv("PRIMIND_TASKS_URL"),
@@ -68,7 +66,9 @@ func Load() *Config {
 
 			MaxRetries: maxRetries,
 		},
-	}
+		Redis:    redisConfig,
+		Throttle: LoadThrottleConfig(),
+	}, nil
 }
 
 func parseLogLevel(level string) slog.Level {
