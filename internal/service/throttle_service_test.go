@@ -7,95 +7,21 @@ import (
 	"time"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 	"go.uber.org/mock/gomock"
 )
 
-func TestClassifyByTaskType(t *testing.T) {
-	svc := &ThrottleService{}
-
-	tests := []struct {
-		name     string
-		reminds  []client.RemindResponse
-		expected *ClassifiedReminds
-	}{
-		{
-			name:    "empty list",
-			reminds: []client.RemindResponse{},
-			expected: &ClassifiedReminds{
-				Urgency:   []client.RemindResponse{},
-				Scheduled: []client.RemindResponse{},
-				Normal:    []client.RemindResponse{},
-				Low:       []client.RemindResponse{},
-			},
-		},
-		{
-			name: "classify each task type",
-			reminds: []client.RemindResponse{
-				{ID: "1", TaskType: "urgent"},
-				{ID: "2", TaskType: "scheduled"},
-				{ID: "3", TaskType: "normal"},
-				{ID: "4", TaskType: "low"},
-			},
-			expected: &ClassifiedReminds{
-				Urgency:   []client.RemindResponse{{ID: "1", TaskType: "urgent"}},
-				Scheduled: []client.RemindResponse{{ID: "2", TaskType: "scheduled"}},
-				Normal:    []client.RemindResponse{{ID: "3", TaskType: "normal"}},
-				Low:       []client.RemindResponse{{ID: "4", TaskType: "low"}},
-			},
-		},
-		{
-			name: "unknown task type falls back to Normal",
-			reminds: []client.RemindResponse{
-				{ID: "1", TaskType: "Unknown"},
-				{ID: "2", TaskType: "InvalidType"},
-			},
-			expected: &ClassifiedReminds{
-				Urgency:   []client.RemindResponse{},
-				Scheduled: []client.RemindResponse{},
-				Normal: []client.RemindResponse{
-					{ID: "1", TaskType: "Unknown"},
-					{ID: "2", TaskType: "InvalidType"},
-				},
-				Low: []client.RemindResponse{},
-			},
-		},
-		{
-			name: "multiple reminds of same type",
-			reminds: []client.RemindResponse{
-				{ID: "1", TaskType: "urgent"},
-				{ID: "2", TaskType: "urgent"},
-				{ID: "3", TaskType: "normal"},
-			},
-			expected: &ClassifiedReminds{
-				Urgency: []client.RemindResponse{
-					{ID: "1", TaskType: "urgent"},
-					{ID: "2", TaskType: "urgent"},
-				},
-				Scheduled: []client.RemindResponse{},
-				Normal:    []client.RemindResponse{{ID: "3", TaskType: "normal"}},
-				Low:       []client.RemindResponse{},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := svc.ClassifyByTaskType(tt.reminds)
-
-			if len(result.Urgency) != len(tt.expected.Urgency) {
-				t.Errorf("Urgency: got %d, want %d", len(result.Urgency), len(tt.expected.Urgency))
-			}
-			if len(result.Scheduled) != len(tt.expected.Scheduled) {
-				t.Errorf("Scheduled: got %d, want %d", len(result.Scheduled), len(tt.expected.Scheduled))
-			}
-			if len(result.Normal) != len(tt.expected.Normal) {
-				t.Errorf("Normal: got %d, want %d", len(result.Normal), len(tt.expected.Normal))
-			}
-			if len(result.Low) != len(tt.expected.Low) {
-				t.Errorf("Low: got %d, want %d", len(result.Low), len(tt.expected.Low))
-			}
-		})
-	}
+// createTestThrottleService creates a ThrottleService with the necessary shared components for testing.
+func createTestThrottleService(
+	remindClient client.RemindTimeRepository,
+	taskQueue client.TaskQueue,
+	throttleRepo domain.ThrottleRepository,
+	requestCapPerMinute int,
+) *ThrottleService {
+	laneClassifier := NewLaneClassifier()
+	slotCounter := NewSlotCounter(throttleRepo)
+	slotCalculator := NewSlotCalculator(slotCounter, requestCapPerMinute)
+	return NewThrottleService(remindClient, taskQueue, throttleRepo, laneClassifier, slotCalculator)
 }
 
 func TestExtractFCMTokens(t *testing.T) {
@@ -168,7 +94,7 @@ func TestProcessReminds_Success(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices: []client.DeviceResponse{
 			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -205,7 +131,7 @@ func TestProcessReminds_Success(t *testing.T) {
 		UpdateThrottled(gomock.Any(), "remind-1", true).
 		Return(nil)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 	start := now
 	end := now.Add(2 * time.Hour)
@@ -238,7 +164,7 @@ func TestProcessReminds_GetRemindsByTimeRangeError(t *testing.T) {
 		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, expectedErr)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 	now := time.Now()
 
@@ -267,7 +193,7 @@ func TestProcessReminds_RegisterNotificationError(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices: []client.DeviceResponse{
 			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -286,7 +212,7 @@ func TestProcessReminds_RegisterNotificationError(t *testing.T) {
 		RegisterNotification(gomock.Any(), gomock.Any()).
 		Return(nil, queueErr)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
@@ -317,7 +243,7 @@ func TestProcessReminds_UpdateThrottledError(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices: []client.DeviceResponse{
 			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -341,7 +267,7 @@ func TestProcessReminds_UpdateThrottledError(t *testing.T) {
 		Return(updateErr).
 		Times(3)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
@@ -370,7 +296,7 @@ func TestProcessReminds_EmptyReminds(t *testing.T) {
 			Count:   0,
 		}, nil)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 	now := time.Now()
 
@@ -399,7 +325,7 @@ func TestProcessReminds_NoFCMTokens(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices:   []client.DeviceResponse{},
 	}
@@ -411,19 +337,21 @@ func TestProcessReminds_NoFCMTokens(t *testing.T) {
 			Count:   1,
 		}, nil)
 
-	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), "remind-1", true).
-		Return(nil)
+	// Note: No UpdateThrottled call expected - reminds without FCM tokens are now skipped
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.SuccessCount != 1 {
-		t.Errorf("SuccessCount: got %d, want 1", resp.SuccessCount)
+	// Reminds without FCM tokens are skipped, not processed as success
+	if resp.SkippedCount != 1 {
+		t.Errorf("SkippedCount: got %d, want 1", resp.SkippedCount)
+	}
+	if resp.SuccessCount != 0 {
+		t.Errorf("SuccessCount: got %d, want 0", resp.SuccessCount)
 	}
 }
 
@@ -439,7 +367,7 @@ func TestProcessReminds_NilTaskQueue(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices: []client.DeviceResponse{
 			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -457,7 +385,7 @@ func TestProcessReminds_NilTaskQueue(t *testing.T) {
 		UpdateThrottled(gomock.Any(), "remind-1", true).
 		Return(nil)
 
-	svc := NewThrottleService(mockRemindRepo, nil)
+	svc := createTestThrottleService(mockRemindRepo, nil, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
@@ -483,7 +411,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 			Time:      now.Add(1 * time.Hour),
 			UserID:    "user-1",
 			TaskID:    "task-1",
-			TaskType:  "Normal",
+			TaskType:  "near",
 			Throttled: true,
 			Devices: []client.DeviceResponse{
 				{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -494,7 +422,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 			Time:      now.Add(1 * time.Hour),
 			UserID:    "user-2",
 			TaskID:    "task-2",
-			TaskType:  "Normal",
+			TaskType:  "near",
 			Throttled: false,
 			Devices: []client.DeviceResponse{
 				{DeviceID: "device-2", FCMToken: "fcm-token-2"},
@@ -517,7 +445,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 		UpdateThrottled(gomock.Any(), "remind-2", true).
 		Return(nil)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
@@ -546,7 +474,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 			Time:      now.Add(1 * time.Hour),
 			UserID:    "user-1",
 			TaskID:    "task-1",
-			TaskType:  "Urgency",
+			TaskType:  "short",
 			Throttled: false,
 			Devices:   []client.DeviceResponse{{DeviceID: "d1", FCMToken: "token1"}},
 		},
@@ -555,7 +483,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 			Time:      now.Add(2 * time.Hour),
 			UserID:    "user-2",
 			TaskID:    "task-2",
-			TaskType:  "Scheduled",
+			TaskType:  "scheduled",
 			Throttled: false,
 			Devices:   []client.DeviceResponse{{DeviceID: "d2", FCMToken: "token2"}},
 		},
@@ -564,7 +492,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 			Time:      now.Add(3 * time.Hour),
 			UserID:    "user-3",
 			TaskID:    "task-3",
-			TaskType:  "Normal",
+			TaskType:  "near",
 			Throttled: false,
 			Devices:   []client.DeviceResponse{{DeviceID: "d3", FCMToken: "token3"}},
 		},
@@ -573,7 +501,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 			Time:      now.Add(4 * time.Hour),
 			UserID:    "user-4",
 			TaskID:    "task-4",
-			TaskType:  "Low",
+			TaskType:  "relaxed",
 			Throttled: false,
 			Devices:   []client.DeviceResponse{{DeviceID: "d4", FCMToken: "token4"}},
 		},
@@ -596,7 +524,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 		Return(nil).
 		Times(4)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(5*time.Hour))
@@ -627,7 +555,7 @@ func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
 		Time:      now.Add(1 * time.Hour),
 		UserID:    "user-1",
 		TaskID:    "task-1",
-		TaskType:  "Normal",
+		TaskType:  "near",
 		Throttled: false,
 		Devices: []client.DeviceResponse{
 			{DeviceID: "device-1", FCMToken: "fcm-token-1"},
@@ -655,7 +583,7 @@ func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
 			Return(nil),
 	)
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
@@ -683,7 +611,7 @@ func TestProcessReminds_ContextCancellation(t *testing.T) {
 			return nil, ctx.Err()
 		})
 
-	svc := NewThrottleService(mockRemindRepo, mockTaskQueue)
+	svc := createTestThrottleService(mockRemindRepo, mockTaskQueue, nil, 60)
 	now := time.Now()
 
 	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
