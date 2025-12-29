@@ -7,23 +7,8 @@ import (
 	"time"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
-
-type TaskType string
-
-const (
-	TaskTypeUrgent    TaskType = "urgent"
-	TaskTypeScheduled TaskType = "scheduled"
-	TaskTypeNormal    TaskType = "normal"
-	TaskTypeLow       TaskType = "low"
-)
-
-type ClassifiedReminds struct {
-	Urgency   []client.RemindResponse
-	Scheduled []client.RemindResponse
-	Normal    []client.RemindResponse
-	Low       []client.RemindResponse
-}
 
 type ProcessedRemind struct {
 	Remind    client.RemindResponse
@@ -33,12 +18,24 @@ type ProcessedRemind struct {
 type ThrottleService struct {
 	remindTimeClient client.RemindTimeRepository
 	taskQueue        client.TaskQueue
+	throttleRepo     domain.ThrottleRepository
+	laneClassifier   *LaneClassifier
+	slotCalculator   *SlotCalculator
 }
 
-func NewThrottleService(remindTimeClient client.RemindTimeRepository, taskQueue client.TaskQueue) *ThrottleService {
+func NewThrottleService(
+	remindTimeClient client.RemindTimeRepository,
+	taskQueue client.TaskQueue,
+	throttleRepo domain.ThrottleRepository,
+	laneClassifier *LaneClassifier,
+	slotCalculator *SlotCalculator,
+) *ThrottleService {
 	return &ThrottleService{
 		remindTimeClient: remindTimeClient,
 		taskQueue:        taskQueue,
+		throttleRepo:     throttleRepo,
+		laneClassifier:   laneClassifier,
+		slotCalculator:   slotCalculator,
 	}
 }
 
@@ -57,44 +54,100 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 
 	unthrottledReminds := filterUnthrottled(remindsResp.Reminds)
 
-	slog.DebugContext(ctx, "filtered unthrottled reminds",
+	slog.InfoContext(ctx, "filtered unthrottled reminds",
 		slog.Int("unthrottled_count", len(unthrottledReminds)),
 	)
 
-	classified := s.ClassifyByTaskType(unthrottledReminds)
-
-	slog.InfoContext(ctx, "classified reminds",
-		slog.Int("urgency", len(classified.Urgency)),
-		slog.Int("scheduled", len(classified.Scheduled)),
-		slog.Int("normal", len(classified.Normal)),
-		slog.Int("low", len(classified.Low)),
-	)
-
-	allReminds := flattenClassifiedReminds(classified)
-
-	results := make([]ThrottleResultItem, 0, len(allReminds))
+	results := make([]ThrottleResultItem, 0, len(unthrottledReminds))
 	successCount := 0
 	failedCount := 0
+	skippedCount := 0
+	shiftedCount := 0
 
-	for _, remind := range allReminds {
+	for _, remind := range unthrottledReminds {
 		fcmTokens := s.ExtractFCMTokens(remind.Devices)
+		lane := s.laneClassifier.Classify(remind)
 
 		slog.DebugContext(ctx, "processing remind",
 			slog.String("remind_id", remind.ID),
 			slog.String("task_id", remind.TaskID),
 			slog.String("task_type", remind.TaskType),
+			slog.String("lane", lane.String()),
 			slog.Int("fcm_token_count", len(fcmTokens)),
+			slog.Int("slide_window_width", int(remind.SlideWindowWidth)),
 		)
 
 		result := ThrottleResultItem{
-			RemindID:  remind.ID,
-			TaskID:    remind.TaskID,
-			TaskType:  remind.TaskType,
-			FCMTokens: fcmTokens,
-			Success:   true,
+			RemindID:      remind.ID,
+			TaskID:        remind.TaskID,
+			TaskType:      remind.TaskType,
+			FCMTokens:     fcmTokens,
+			Lane:          lane,
+			OriginalTime:  remind.Time,
+			ScheduledTime: remind.Time,
+			Success:       true,
 		}
 
-		if err := s.registerToQueue(ctx, remind, fcmTokens); err != nil {
+		// Check idempotency: skip if already committed
+		if s.throttleRepo != nil {
+			committed, err := s.throttleRepo.IsPacketCommitted(ctx, remind.ID)
+			if err != nil {
+				slog.WarnContext(ctx, "failed to check packet committed status",
+					slog.String("remind_id", remind.ID),
+					slog.String("error", err.Error()),
+				)
+				// Continue processing - treat as not committed
+			} else if committed {
+				slog.DebugContext(ctx, "skipping already committed remind",
+					slog.String("remind_id", remind.ID),
+				)
+				result.Skipped = true
+				result.SkipReason = "already committed"
+				skippedCount++
+				results = append(results, result)
+				continue
+			}
+		}
+
+		// Skip if no FCM tokens
+		if len(fcmTokens) == 0 {
+			slog.DebugContext(ctx, "skipping remind without FCM tokens",
+				slog.String("remind_id", remind.ID),
+			)
+			result.Skipped = true
+			result.SkipReason = "no FCM tokens"
+			skippedCount++
+			results = append(results, result)
+			continue
+		}
+
+		// Calculate scheduled time
+		scheduledTime, wasShifted, err := s.calculateScheduledTime(ctx, remind, lane)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to calculate scheduled time",
+				slog.String("remind_id", remind.ID),
+				slog.String("error", err.Error()),
+			)
+			// Use original time as fallback
+			scheduledTime = remind.Time
+			wasShifted = false
+		}
+
+		result.ScheduledTime = scheduledTime
+		result.WasShifted = wasShifted
+
+		if wasShifted {
+			shiftedCount++
+			slog.InfoContext(ctx, "reminder shifted",
+				slog.String("remind_id", remind.ID),
+				slog.Time("original_time", remind.Time),
+				slog.Time("scheduled_time", scheduledTime),
+				slog.Duration("shift", scheduledTime.Sub(remind.Time)),
+			)
+		}
+
+		// Register to task queue with the scheduled time
+		if err := s.registerToQueueWithTime(ctx, remind, fcmTokens, scheduledTime); err != nil {
 			slog.ErrorContext(ctx, "failed to register to queue",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
@@ -107,10 +160,36 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 				ProcessedCount: len(results),
 				SuccessCount:   successCount,
 				FailedCount:    failedCount,
+				SkippedCount:   skippedCount,
+				ShiftedCount:   shiftedCount,
 				Results:        results,
 			}, fmt.Errorf("failed to register remind %s to queue: %w", remind.ID, err)
 		}
 
+		// Commit packet to Redis
+		if s.throttleRepo != nil {
+			packet := domain.NewPacket(remind.ID, remind.Time, scheduledTime, lane)
+			if err := s.throttleRepo.SaveCommittedPacket(ctx, packet); err != nil {
+				slog.WarnContext(ctx, "failed to save committed packet",
+					slog.String("remind_id", remind.ID),
+					slog.String("error", err.Error()),
+				)
+				// Continue
+			}
+
+			// Increment packet count for the scheduled minute
+			minuteKey := domain.MinuteKey(scheduledTime)
+			if err := s.throttleRepo.IncrementPacketCount(ctx, minuteKey, 1); err != nil {
+				slog.WarnContext(ctx, "failed to increment packet count",
+					slog.String("remind_id", remind.ID),
+					slog.String("minute_key", minuteKey),
+					slog.String("error", err.Error()),
+				)
+				// Continue
+			}
+		}
+
+		// Update throttled flag in time-mgmt
 		if err := s.updateThrottledWithRetry(ctx, remind.ID, true); err != nil {
 			slog.ErrorContext(ctx, "failed to update throttled flag",
 				slog.String("remind_id", remind.ID),
@@ -124,6 +203,8 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 				ProcessedCount: len(results),
 				SuccessCount:   successCount,
 				FailedCount:    failedCount,
+				SkippedCount:   skippedCount,
+				ShiftedCount:   shiftedCount,
 				Results:        results,
 			}, fmt.Errorf("failed to update throttled flag for remind %s: %w", remind.ID, err)
 		}
@@ -133,11 +214,49 @@ func (s *ThrottleService) ProcessReminds(ctx context.Context, start, end time.Ti
 	}
 
 	return &ThrottleResponse{
-		ProcessedCount: len(allReminds),
+		ProcessedCount: len(unthrottledReminds),
 		SuccessCount:   successCount,
 		FailedCount:    failedCount,
+		SkippedCount:   skippedCount,
+		ShiftedCount:   shiftedCount,
 		Results:        results,
 	}, nil
+}
+
+func (s *ThrottleService) calculateScheduledTime(
+	ctx context.Context,
+	remind client.RemindResponse,
+	lane domain.Lane,
+) (time.Time, bool, error) {
+	originalTime := remind.Time
+
+	if s.throttleRepo == nil {
+		return originalTime, false, nil
+	}
+
+	// Check if there's a planned time from the planning phase
+	plannedPacket, err := s.throttleRepo.GetPlannedPacket(ctx, remind.ID)
+	if err == nil && plannedPacket != nil {
+		// Use the pre-calculated planned time
+		wasShifted := plannedPacket.WasShifted()
+		slog.DebugContext(ctx, "using planned time from planning phase",
+			slog.String("remind_id", remind.ID),
+			slog.Time("original_time", originalTime),
+			slog.Time("planned_time", plannedPacket.PlannedTime),
+			slog.Bool("was_shifted", wasShifted),
+		)
+		return plannedPacket.PlannedTime, wasShifted, nil
+	}
+
+	// No plan found
+	scheduledTime, wasShifted := s.slotCalculator.FindSlot(
+		ctx,
+		originalTime,
+		int(remind.SlideWindowWidth),
+		lane,
+	)
+
+	return scheduledTime, wasShifted, nil
 }
 
 func (s *ThrottleService) updateThrottledWithRetry(ctx context.Context, remindID string, throttled bool) error {
@@ -171,32 +290,6 @@ func (s *ThrottleService) updateThrottledWithRetry(ctx context.Context, remindID
 	return fmt.Errorf("failed to update throttled flag after %d retries: %w", maxRetries, lastErr)
 }
 
-func (s *ThrottleService) ClassifyByTaskType(reminds []client.RemindResponse) *ClassifiedReminds {
-	classified := &ClassifiedReminds{
-		Urgency:   make([]client.RemindResponse, 0),
-		Scheduled: make([]client.RemindResponse, 0),
-		Normal:    make([]client.RemindResponse, 0),
-		Low:       make([]client.RemindResponse, 0),
-	}
-
-	for _, remind := range reminds {
-		switch TaskType(remind.TaskType) {
-		case TaskTypeUrgent:
-			classified.Urgency = append(classified.Urgency, remind)
-		case TaskTypeScheduled:
-			classified.Scheduled = append(classified.Scheduled, remind)
-		case TaskTypeNormal:
-			classified.Normal = append(classified.Normal, remind)
-		case TaskTypeLow:
-			classified.Low = append(classified.Low, remind)
-		default:
-			classified.Normal = append(classified.Normal, remind)
-		}
-	}
-
-	return classified
-}
-
 func (s *ThrottleService) ExtractFCMTokens(devices []client.DeviceResponse) []string {
 	tokens := make([]string, 0, len(devices))
 	for _, device := range devices {
@@ -207,16 +300,15 @@ func (s *ThrottleService) ExtractFCMTokens(devices []client.DeviceResponse) []st
 	return tokens
 }
 
-func (s *ThrottleService) registerToQueue(ctx context.Context, remind client.RemindResponse, fcmTokens []string) error {
+// registerToQueueWithTime registers a remind to the task queue with a specific schedule time.
+func (s *ThrottleService) registerToQueueWithTime(
+	ctx context.Context,
+	remind client.RemindResponse,
+	fcmTokens []string,
+	scheduleAt time.Time,
+) error {
 	if s.taskQueue == nil {
 		slog.WarnContext(ctx, "task queue not configured, skipping queue registration",
-			slog.String("remind_id", remind.ID),
-		)
-		return nil
-	}
-
-	if len(fcmTokens) == 0 {
-		slog.DebugContext(ctx, "no FCM tokens, skipping queue registration",
 			slog.String("remind_id", remind.ID),
 		)
 		return nil
@@ -228,7 +320,7 @@ func (s *ThrottleService) registerToQueue(ctx context.Context, remind client.Rem
 		TaskID:     remind.TaskID,
 		TaskType:   remind.TaskType,
 		FCMTokens:  fcmTokens,
-		ScheduleAt: remind.Time,
+		ScheduleAt: scheduleAt,
 	}
 
 	resp, err := s.taskQueue.RegisterNotification(ctx, task)
@@ -253,16 +345,4 @@ func filterUnthrottled(reminds []client.RemindResponse) []client.RemindResponse 
 		}
 	}
 	return filtered
-}
-
-func flattenClassifiedReminds(classified *ClassifiedReminds) []client.RemindResponse {
-	total := len(classified.Urgency) + len(classified.Scheduled) + len(classified.Normal) + len(classified.Low)
-	result := make([]client.RemindResponse, 0, total)
-
-	result = append(result, classified.Urgency...)
-	result = append(result, classified.Scheduled...)
-	result = append(result, classified.Normal...)
-	result = append(result, classified.Low...)
-
-	return result
 }
