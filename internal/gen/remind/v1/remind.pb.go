@@ -209,18 +209,19 @@ func (x *CancelRemindRequest) GetUserId() string {
 
 // Remind represents a single reminder entry
 type Remind struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Time          *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=time,proto3" json:"time,omitempty"`
-	UserId        string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Devices       []*Device              `protobuf:"bytes,4,rep,name=devices,proto3" json:"devices,omitempty"`
-	TaskId        string                 `protobuf:"bytes,5,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskType      v1.TaskType            `protobuf:"varint,6,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
-	Throttled     bool                   `protobuf:"varint,7,opt,name=throttled,proto3" json:"throttled,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Time             *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=time,proto3" json:"time,omitempty"`
+	UserId           string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Devices          []*Device              `protobuf:"bytes,4,rep,name=devices,proto3" json:"devices,omitempty"`
+	TaskId           string                 `protobuf:"bytes,5,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskType         v1.TaskType            `protobuf:"varint,6,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	Throttled        bool                   `protobuf:"varint,7,opt,name=throttled,proto3" json:"throttled,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	SlideWindowWidth int32                  `protobuf:"varint,10,opt,name=slide_window_width,json=slideWindowWidth,proto3" json:"slide_window_width,omitempty"` // slide window width in seconds for throttling (range: 60-1800)
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Remind) Reset() {
@@ -314,6 +315,13 @@ func (x *Remind) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Remind) GetSlideWindowWidth() int32 {
+	if x != nil {
+		return x.SlideWindowWidth
+	}
+	return 0
 }
 
 // RemindsResponse is the response containing a list of reminds
@@ -536,7 +544,7 @@ const file_remind_v1_remind_proto_rawDesc = "" +
 	"\ttask_type\x18\x05 \x01(\x0e2\x13.common.v1.TaskTypeB\x0e\xbaH\v\x82\x01\b\x18\x01\x18\x02\x18\x03\x18\x04R\btaskType\"[\n" +
 	"\x13CancelRemindRequest\x12!\n" +
 	"\atask_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12!\n" +
-	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\"\xed\x02\n" +
+	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\"\x9b\x03\n" +
 	"\x06Remind\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x17\n" +
@@ -548,7 +556,9 @@ const file_remind_v1_remind_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"T\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12,\n" +
+	"\x12slide_window_width\x18\n" +
+	" \x01(\x05R\x10slideWindowWidth\"T\n" +
 	"\x0fRemindsResponse\x12+\n" +
 	"\areminds\x18\x01 \x03(\v2\x11.remind.v1.RemindR\areminds\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\";\n" +

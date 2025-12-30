@@ -24,15 +24,81 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Lane represents the throttling lane classification
+type Lane int32
+
+const (
+	Lane_LANE_UNSPECIFIED Lane = 0
+	// Strict lane: urgent, scheduled, or tasks with narrow slide windows (<=60s)
+	// These are never shifted and may temporarily exceed the cap
+	Lane_LANE_STRICT Lane = 1
+	// Loose lane: normal, low, or tasks with wider slide windows
+	// These can be shifted within their slide window when cap is exceeded
+	Lane_LANE_LOOSE Lane = 2
+)
+
+// Enum value maps for Lane.
+var (
+	Lane_name = map[int32]string{
+		0: "LANE_UNSPECIFIED",
+		1: "LANE_STRICT",
+		2: "LANE_LOOSE",
+	}
+	Lane_value = map[string]int32{
+		"LANE_UNSPECIFIED": 0,
+		"LANE_STRICT":      1,
+		"LANE_LOOSE":       2,
+	}
+)
+
+func (x Lane) Enum() *Lane {
+	p := new(Lane)
+	*p = x
+	return p
+}
+
+func (x Lane) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Lane) Descriptor() protoreflect.EnumDescriptor {
+	return file_throttle_v1_throttle_proto_enumTypes[0].Descriptor()
+}
+
+func (Lane) Type() protoreflect.EnumType {
+	return &file_throttle_v1_throttle_proto_enumTypes[0]
+}
+
+func (x Lane) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Lane.Descriptor instead.
+func (Lane) EnumDescriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{0}
+}
+
 // ThrottleResultItem represents the result for processing a single remind
 type ThrottleResultItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RemindId      string                 `protobuf:"bytes,1,opt,name=remind_id,json=remindId,proto3" json:"remind_id,omitempty"`
-	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskType      v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
-	FcmTokens     []string               `protobuf:"bytes,4,rep,name=fcm_tokens,json=fcmTokens,proto3" json:"fcm_tokens,omitempty"`
-	Success       bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
-	Error         string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RemindId  string                 `protobuf:"bytes,1,opt,name=remind_id,json=remindId,proto3" json:"remind_id,omitempty"`
+	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskType  v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	FcmTokens []string               `protobuf:"bytes,4,rep,name=fcm_tokens,json=fcmTokens,proto3" json:"fcm_tokens,omitempty"`
+	Success   bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
+	Error     string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	// Lane classification for throttling behavior
+	Lane Lane `protobuf:"varint,7,opt,name=lane,proto3,enum=throttle.v1.Lane" json:"lane,omitempty"`
+	// Original scheduled time before any shifting
+	OriginalTime *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=original_time,json=originalTime,proto3" json:"original_time,omitempty"`
+	// Actual scheduled time (may differ from original_time if shifted)
+	ScheduledTime *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=scheduled_time,json=scheduledTime,proto3" json:"scheduled_time,omitempty"`
+	// Whether the notification was shifted from its original time
+	WasShifted bool `protobuf:"varint,10,opt,name=was_shifted,json=wasShifted,proto3" json:"was_shifted,omitempty"`
+	// Whether this remind was skipped (not processed)
+	Skipped bool `protobuf:"varint,11,opt,name=skipped,proto3" json:"skipped,omitempty"`
+	// Reason for skipping (e.g., "no FCM tokens", "already committed")
+	SkipReason    string `protobuf:"bytes,12,opt,name=skip_reason,json=skipReason,proto3" json:"skip_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,6 +175,48 @@ func (x *ThrottleResultItem) GetError() string {
 	return ""
 }
 
+func (x *ThrottleResultItem) GetLane() Lane {
+	if x != nil {
+		return x.Lane
+	}
+	return Lane_LANE_UNSPECIFIED
+}
+
+func (x *ThrottleResultItem) GetOriginalTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OriginalTime
+	}
+	return nil
+}
+
+func (x *ThrottleResultItem) GetScheduledTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ScheduledTime
+	}
+	return nil
+}
+
+func (x *ThrottleResultItem) GetWasShifted() bool {
+	if x != nil {
+		return x.WasShifted
+	}
+	return false
+}
+
+func (x *ThrottleResultItem) GetSkipped() bool {
+	if x != nil {
+		return x.Skipped
+	}
+	return false
+}
+
+func (x *ThrottleResultItem) GetSkipReason() string {
+	if x != nil {
+		return x.SkipReason
+	}
+	return ""
+}
+
 // ThrottleResponse is the response from throttle processing
 type ThrottleResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -116,8 +224,12 @@ type ThrottleResponse struct {
 	SuccessCount   int32                  `protobuf:"varint,2,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
 	FailedCount    int32                  `protobuf:"varint,3,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
 	Results        []*ThrottleResultItem  `protobuf:"bytes,4,rep,name=results,proto3" json:"results,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Number of reminds that were skipped
+	SkippedCount int32 `protobuf:"varint,5,opt,name=skipped_count,json=skippedCount,proto3" json:"skipped_count,omitempty"`
+	// Number of reminds that were shifted to a later time slot
+	ShiftedCount  int32 `protobuf:"varint,6,opt,name=shifted_count,json=shiftedCount,proto3" json:"shifted_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ThrottleResponse) Reset() {
@@ -176,6 +288,20 @@ func (x *ThrottleResponse) GetResults() []*ThrottleResultItem {
 		return x.Results
 	}
 	return nil
+}
+
+func (x *ThrottleResponse) GetSkippedCount() int32 {
+	if x != nil {
+		return x.SkippedCount
+	}
+	return 0
+}
+
+func (x *ThrottleResponse) GetShiftedCount() int32 {
+	if x != nil {
+		return x.ShiftedCount
+	}
+	return 0
 }
 
 // NotificationTask is the internal task structure for registering notifications
@@ -431,11 +557,189 @@ func (x *ErrorResponse) GetMessage() string {
 	return ""
 }
 
+// PlanResultItem represents the result for planning a single remind
+type PlanResultItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RemindId      string                 `protobuf:"bytes,1,opt,name=remind_id,json=remindId,proto3" json:"remind_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskType      v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	Lane          Lane                   `protobuf:"varint,4,opt,name=lane,proto3,enum=throttle.v1.Lane" json:"lane,omitempty"`
+	OriginalTime  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=original_time,json=originalTime,proto3" json:"original_time,omitempty"`
+	PlannedTime   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=planned_time,json=plannedTime,proto3" json:"planned_time,omitempty"`
+	WasShifted    bool                   `protobuf:"varint,7,opt,name=was_shifted,json=wasShifted,proto3" json:"was_shifted,omitempty"`
+	Skipped       bool                   `protobuf:"varint,8,opt,name=skipped,proto3" json:"skipped,omitempty"`
+	SkipReason    string                 `protobuf:"bytes,9,opt,name=skip_reason,json=skipReason,proto3" json:"skip_reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlanResultItem) Reset() {
+	*x = PlanResultItem{}
+	mi := &file_throttle_v1_throttle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanResultItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanResultItem) ProtoMessage() {}
+
+func (x *PlanResultItem) ProtoReflect() protoreflect.Message {
+	mi := &file_throttle_v1_throttle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanResultItem.ProtoReflect.Descriptor instead.
+func (*PlanResultItem) Descriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PlanResultItem) GetRemindId() string {
+	if x != nil {
+		return x.RemindId
+	}
+	return ""
+}
+
+func (x *PlanResultItem) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *PlanResultItem) GetTaskType() v1.TaskType {
+	if x != nil {
+		return x.TaskType
+	}
+	return v1.TaskType(0)
+}
+
+func (x *PlanResultItem) GetLane() Lane {
+	if x != nil {
+		return x.Lane
+	}
+	return Lane_LANE_UNSPECIFIED
+}
+
+func (x *PlanResultItem) GetOriginalTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OriginalTime
+	}
+	return nil
+}
+
+func (x *PlanResultItem) GetPlannedTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PlannedTime
+	}
+	return nil
+}
+
+func (x *PlanResultItem) GetWasShifted() bool {
+	if x != nil {
+		return x.WasShifted
+	}
+	return false
+}
+
+func (x *PlanResultItem) GetSkipped() bool {
+	if x != nil {
+		return x.Skipped
+	}
+	return false
+}
+
+func (x *PlanResultItem) GetSkipReason() string {
+	if x != nil {
+		return x.SkipReason
+	}
+	return ""
+}
+
+// PlanResponse is the response from the planning phase
+type PlanResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlannedCount  int32                  `protobuf:"varint,1,opt,name=planned_count,json=plannedCount,proto3" json:"planned_count,omitempty"`
+	SkippedCount  int32                  `protobuf:"varint,2,opt,name=skipped_count,json=skippedCount,proto3" json:"skipped_count,omitempty"`
+	ShiftedCount  int32                  `protobuf:"varint,3,opt,name=shifted_count,json=shiftedCount,proto3" json:"shifted_count,omitempty"`
+	Results       []*PlanResultItem      `protobuf:"bytes,4,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlanResponse) Reset() {
+	*x = PlanResponse{}
+	mi := &file_throttle_v1_throttle_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanResponse) ProtoMessage() {}
+
+func (x *PlanResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_throttle_v1_throttle_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanResponse.ProtoReflect.Descriptor instead.
+func (*PlanResponse) Descriptor() ([]byte, []int) {
+	return file_throttle_v1_throttle_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PlanResponse) GetPlannedCount() int32 {
+	if x != nil {
+		return x.PlannedCount
+	}
+	return 0
+}
+
+func (x *PlanResponse) GetSkippedCount() int32 {
+	if x != nil {
+		return x.SkippedCount
+	}
+	return 0
+}
+
+func (x *PlanResponse) GetShiftedCount() int32 {
+	if x != nil {
+		return x.ShiftedCount
+	}
+	return 0
+}
+
+func (x *PlanResponse) GetResults() []*PlanResultItem {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
 var File_throttle_v1_throttle_proto protoreflect.FileDescriptor
 
 const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\n" +
-	"\x1athrottle/v1/throttle.proto\x12\vthrottle.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16common/v1/common.proto\"\xcb\x01\n" +
+	"\x1athrottle/v1/throttle.proto\x12\vthrottle.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16common/v1/common.proto\"\xd2\x03\n" +
 	"\x12ThrottleResultItem\x12\x1b\n" +
 	"\tremind_id\x18\x01 \x01(\tR\bremindId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x120\n" +
@@ -443,12 +747,23 @@ const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\n" +
 	"fcm_tokens\x18\x04 \x03(\tR\tfcmTokens\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05error\"\xbe\x01\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12%\n" +
+	"\x04lane\x18\a \x01(\x0e2\x11.throttle.v1.LaneR\x04lane\x12?\n" +
+	"\roriginal_time\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\foriginalTime\x12A\n" +
+	"\x0escheduled_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\rscheduledTime\x12\x1f\n" +
+	"\vwas_shifted\x18\n" +
+	" \x01(\bR\n" +
+	"wasShifted\x12\x18\n" +
+	"\askipped\x18\v \x01(\bR\askipped\x12\x1f\n" +
+	"\vskip_reason\x18\f \x01(\tR\n" +
+	"skipReason\"\x88\x02\n" +
 	"\x10ThrottleResponse\x12'\n" +
 	"\x0fprocessed_count\x18\x01 \x01(\x05R\x0eprocessedCount\x12#\n" +
 	"\rsuccess_count\x18\x02 \x01(\x05R\fsuccessCount\x12!\n" +
 	"\ffailed_count\x18\x03 \x01(\x05R\vfailedCount\x129\n" +
-	"\aresults\x18\x04 \x03(\v2\x1f.throttle.v1.ThrottleResultItemR\aresults\"\xb9\x01\n" +
+	"\aresults\x18\x04 \x03(\v2\x1f.throttle.v1.ThrottleResultItemR\aresults\x12#\n" +
+	"\rskipped_count\x18\x05 \x01(\x05R\fskippedCount\x12#\n" +
+	"\rshifted_count\x18\x06 \x01(\x05R\fshiftedCount\"\xb9\x01\n" +
 	"\x10NotificationTask\x12\x1d\n" +
 	"\n" +
 	"fcm_tokens\x18\x01 \x03(\tR\tfcmTokens\x12\x17\n" +
@@ -468,7 +783,29 @@ const file_throttle_v1_throttle_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"?\n" +
 	"\rErrorResponse\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05error\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessageB\xcb\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xfb\x02\n" +
+	"\x0ePlanResultItem\x12\x1b\n" +
+	"\tremind_id\x18\x01 \x01(\tR\bremindId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x120\n" +
+	"\ttask_type\x18\x03 \x01(\x0e2\x13.common.v1.TaskTypeR\btaskType\x12%\n" +
+	"\x04lane\x18\x04 \x01(\x0e2\x11.throttle.v1.LaneR\x04lane\x12?\n" +
+	"\roriginal_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\foriginalTime\x12=\n" +
+	"\fplanned_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vplannedTime\x12\x1f\n" +
+	"\vwas_shifted\x18\a \x01(\bR\n" +
+	"wasShifted\x12\x18\n" +
+	"\askipped\x18\b \x01(\bR\askipped\x12\x1f\n" +
+	"\vskip_reason\x18\t \x01(\tR\n" +
+	"skipReason\"\xb4\x01\n" +
+	"\fPlanResponse\x12#\n" +
+	"\rplanned_count\x18\x01 \x01(\x05R\fplannedCount\x12#\n" +
+	"\rskipped_count\x18\x02 \x01(\x05R\fskippedCount\x12#\n" +
+	"\rshifted_count\x18\x03 \x01(\x05R\fshiftedCount\x125\n" +
+	"\aresults\x18\x04 \x03(\v2\x1b.throttle.v1.PlanResultItemR\aresults*=\n" +
+	"\x04Lane\x12\x14\n" +
+	"\x10LANE_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vLANE_STRICT\x10\x01\x12\x0e\n" +
+	"\n" +
+	"LANE_LOOSE\x10\x02B\xcb\x01\n" +
 	"\x0fcom.throttle.v1B\rThrottleProtoP\x01Z\\github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1;throttlev1\xa2\x02\x03TXX\xaa\x02\vThrottle.V1\xca\x02\vThrottle\\V1\xe2\x02\x17Throttle\\V1\\GPBMetadata\xea\x02\fThrottle::V1b\x06proto3"
 
 var (
@@ -483,28 +820,40 @@ func file_throttle_v1_throttle_proto_rawDescGZIP() []byte {
 	return file_throttle_v1_throttle_proto_rawDescData
 }
 
-var file_throttle_v1_throttle_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_throttle_v1_throttle_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_throttle_v1_throttle_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_throttle_v1_throttle_proto_goTypes = []any{
-	(*ThrottleResultItem)(nil),    // 0: throttle.v1.ThrottleResultItem
-	(*ThrottleResponse)(nil),      // 1: throttle.v1.ThrottleResponse
-	(*NotificationTask)(nil),      // 2: throttle.v1.NotificationTask
-	(*CancelRemindRequest)(nil),   // 3: throttle.v1.CancelRemindRequest
-	(*CancelRemindResponse)(nil),  // 4: throttle.v1.CancelRemindResponse
-	(*ErrorResponse)(nil),         // 5: throttle.v1.ErrorResponse
-	(v1.TaskType)(0),              // 6: common.v1.TaskType
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(Lane)(0),                     // 0: throttle.v1.Lane
+	(*ThrottleResultItem)(nil),    // 1: throttle.v1.ThrottleResultItem
+	(*ThrottleResponse)(nil),      // 2: throttle.v1.ThrottleResponse
+	(*NotificationTask)(nil),      // 3: throttle.v1.NotificationTask
+	(*CancelRemindRequest)(nil),   // 4: throttle.v1.CancelRemindRequest
+	(*CancelRemindResponse)(nil),  // 5: throttle.v1.CancelRemindResponse
+	(*ErrorResponse)(nil),         // 6: throttle.v1.ErrorResponse
+	(*PlanResultItem)(nil),        // 7: throttle.v1.PlanResultItem
+	(*PlanResponse)(nil),          // 8: throttle.v1.PlanResponse
+	(v1.TaskType)(0),              // 9: common.v1.TaskType
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
 }
 var file_throttle_v1_throttle_proto_depIdxs = []int32{
-	6, // 0: throttle.v1.ThrottleResultItem.task_type:type_name -> common.v1.TaskType
-	0, // 1: throttle.v1.ThrottleResponse.results:type_name -> throttle.v1.ThrottleResultItem
-	6, // 2: throttle.v1.NotificationTask.task_type:type_name -> common.v1.TaskType
-	7, // 3: throttle.v1.NotificationTask.schedule_at:type_name -> google.protobuf.Timestamp
-	7, // 4: throttle.v1.CancelRemindRequest.cancelled_at:type_name -> google.protobuf.Timestamp
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	9,  // 0: throttle.v1.ThrottleResultItem.task_type:type_name -> common.v1.TaskType
+	0,  // 1: throttle.v1.ThrottleResultItem.lane:type_name -> throttle.v1.Lane
+	10, // 2: throttle.v1.ThrottleResultItem.original_time:type_name -> google.protobuf.Timestamp
+	10, // 3: throttle.v1.ThrottleResultItem.scheduled_time:type_name -> google.protobuf.Timestamp
+	1,  // 4: throttle.v1.ThrottleResponse.results:type_name -> throttle.v1.ThrottleResultItem
+	9,  // 5: throttle.v1.NotificationTask.task_type:type_name -> common.v1.TaskType
+	10, // 6: throttle.v1.NotificationTask.schedule_at:type_name -> google.protobuf.Timestamp
+	10, // 7: throttle.v1.CancelRemindRequest.cancelled_at:type_name -> google.protobuf.Timestamp
+	9,  // 8: throttle.v1.PlanResultItem.task_type:type_name -> common.v1.TaskType
+	0,  // 9: throttle.v1.PlanResultItem.lane:type_name -> throttle.v1.Lane
+	10, // 10: throttle.v1.PlanResultItem.original_time:type_name -> google.protobuf.Timestamp
+	10, // 11: throttle.v1.PlanResultItem.planned_time:type_name -> google.protobuf.Timestamp
+	7,  // 12: throttle.v1.PlanResponse.results:type_name -> throttle.v1.PlanResultItem
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_throttle_v1_throttle_proto_init() }
@@ -517,13 +866,14 @@ func file_throttle_v1_throttle_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_throttle_v1_throttle_proto_rawDesc), len(file_throttle_v1_throttle_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   6,
+			NumEnums:      1,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_throttle_v1_throttle_proto_goTypes,
 		DependencyIndexes: file_throttle_v1_throttle_proto_depIdxs,
+		EnumInfos:         file_throttle_v1_throttle_proto_enumTypes,
 		MessageInfos:      file_throttle_v1_throttle_proto_msgTypes,
 	}.Build()
 	File_throttle_v1_throttle_proto = out.File

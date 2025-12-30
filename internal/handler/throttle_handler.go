@@ -12,17 +12,24 @@ import (
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 type ThrottleHandler struct {
-	throttleService *service.ThrottleService
+	throttleService *throttle.Service
+	planService     *plan.Service
 	config          *config.Config
 }
 
-func NewThrottleHandler(throttleService *service.ThrottleService, cfg *config.Config) *ThrottleHandler {
+func NewThrottleHandler(
+	throttleService *throttle.Service,
+	planService *plan.Service,
+	cfg *config.Config,
+) *ThrottleHandler {
 	return &ThrottleHandler{
 		throttleService: throttleService,
+		planService:     planService,
 		config:          cfg,
 	}
 }
@@ -30,28 +37,55 @@ func NewThrottleHandler(throttleService *service.ThrottleService, cfg *config.Co
 func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	now := time.Now()
-	start := now
-	end := now.Add(time.Duration(h.config.TimeRangeMinutes) * time.Minute)
+	now := time.Now().Truncate(time.Minute)
 
-	slog.InfoContext(ctx, "processing throttle request",
-		slog.Time("start", start),
-		slog.Time("end", end),
+	if h.planService != nil {
+		planStart := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+		planEnd := now.Add(time.Duration(h.config.Throttle.PlanningWindowMinutes) * time.Minute)
+
+		slog.InfoContext(ctx, "starting planning phase",
+			slog.Time("plan_start", planStart),
+			slog.Time("plan_end", planEnd),
+		)
+
+		planResult, err := h.planService.PlanReminds(ctx, planStart, planEnd)
+		if err != nil {
+			slog.WarnContext(ctx, "planning phase failed, continuing to commit phase",
+				slog.String("error", err.Error()),
+			)
+			// Continue to commit phase even if planning fails
+		} else {
+			slog.InfoContext(ctx, "planning phase completed",
+				slog.Int("planned_count", planResult.PlannedCount),
+				slog.Int("skipped_count", planResult.SkippedCount),
+				slog.Int("shifted_count", planResult.ShiftedCount),
+			)
+		}
+	}
+
+	commitStart := now
+	commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+
+	slog.InfoContext(ctx, "starting commit phase",
+		slog.Time("commit_start", commitStart),
+		slog.Time("commit_end", commitEnd),
 	)
 
-	result, err := h.throttleService.ProcessReminds(ctx, start, end)
+	result, err := h.throttleService.ProcessReminds(ctx, commitStart, commitEnd)
 	if err != nil {
-		slog.ErrorContext(ctx, "throttle processing failed",
+		slog.ErrorContext(ctx, "commit phase failed",
 			slog.String("error", err.Error()),
 		)
 		respondProtoError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	slog.InfoContext(ctx, "throttle completed",
+	slog.InfoContext(ctx, "commit phase completed",
 		slog.Int("processed", result.ProcessedCount),
 		slog.Int("success", result.SuccessCount),
 		slog.Int("failed", result.FailedCount),
+		slog.Int("skipped", result.SkippedCount),
+		slog.Int("shifted", result.ShiftedCount),
 	)
 
 	respondProtoThrottleResponse(c, http.StatusOK, result)
@@ -72,7 +106,7 @@ func respondProtoError(c *gin.Context, status int, message string) {
 	c.Data(status, "application/json", respBytes)
 }
 
-func respondProtoThrottleResponse(c *gin.Context, status int, result *service.ThrottleResponse) {
+func respondProtoThrottleResponse(c *gin.Context, status int, result *throttle.Response) {
 	protoResults := make([]*throttlev1.ThrottleResultItem, 0, len(result.Results))
 	for _, r := range result.Results {
 		protoResults = append(protoResults, &throttlev1.ThrottleResultItem{

@@ -1,8 +1,8 @@
-package client
+package taskqueue
 
 import "context"
 
-//go:generate mockgen -source=task_queue.go -destination=task_queue_mock.go -package=client
+//go:generate mockgen -source=task_queue.go -destination=mock.go -package=taskqueue
 
 type TaskQueue interface {
 	RegisterNotification(ctx context.Context, task *NotificationTask) (*TaskResponse, error)

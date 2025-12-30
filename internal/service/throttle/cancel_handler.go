@@ -1,4 +1,4 @@
-package service
+package throttle
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
 )
 
-func (s *ThrottleService) HandleRemindCancelled(ctx context.Context, req *throttlev1.CancelRemindRequest) error {
+func (s *Service) HandleRemindCancelled(ctx context.Context, req *throttlev1.CancelRemindRequest) error {
 	logAttrs := []any{
 		slog.String("task_id", req.TaskId),
 		slog.String("user_id", req.UserId),

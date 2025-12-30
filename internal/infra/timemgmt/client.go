@@ -1,4 +1,4 @@
-package client
+package timemgmt
 
 import (
 	"bytes"
@@ -18,13 +18,13 @@ import (
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 )
 
-type RemindTimeClient struct {
+type Client struct {
 	baseURL    string
 	httpClient *http.Client
 }
 
-func NewRemindTimeClient(baseURL string) *RemindTimeClient {
-	return &RemindTimeClient{
+func NewClient(baseURL string) *Client {
+	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -32,7 +32,7 @@ func NewRemindTimeClient(baseURL string) *RemindTimeClient {
 	}
 }
 
-func (c *RemindTimeClient) GetRemindsByTimeRange(ctx context.Context, start, end time.Time) (*RemindsResponse, error) {
+func (c *Client) GetRemindsByTimeRange(ctx context.Context, start, end time.Time) (*RemindsResponse, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse base URL: %w", err)
@@ -102,7 +102,7 @@ func (c *RemindTimeClient) GetRemindsByTimeRange(ctx context.Context, start, end
 	return remindsResp, nil
 }
 
-func (c *RemindTimeClient) UpdateThrottled(ctx context.Context, id string, throttled bool) error {
+func (c *Client) UpdateThrottled(ctx context.Context, id string, throttled bool) error {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse base URL: %w", err)
@@ -187,15 +187,16 @@ func protoRemindsToClient(protoResp *remindv1.RemindsResponse) *RemindsResponse 
 		}
 
 		reminds = append(reminds, RemindResponse{
-			ID:        r.Id,
-			Time:      remindTime,
-			UserID:    r.UserId,
-			Devices:   devices,
-			TaskID:    r.TaskId,
-			TaskType:  taskTypeToString(r.TaskType),
-			Throttled: r.Throttled,
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
+			ID:               r.Id,
+			Time:             remindTime,
+			UserID:           r.UserId,
+			Devices:          devices,
+			TaskID:           r.TaskId,
+			TaskType:         taskTypeToString(r.TaskType),
+			Throttled:        r.Throttled,
+			SlideWindowWidth: r.GetSlideWindowWidth(),
+			CreatedAt:        createdAt,
+			UpdatedAt:        updatedAt,
 		})
 	}
 

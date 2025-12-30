@@ -7,20 +7,20 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/taskqueue"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
 )
 
-func initTaskQueue(_ context.Context, cfg *config.Config) (client.TaskQueue, func() error, error) {
+func initTaskQueue(_ context.Context, cfg *config.Config) (taskqueue.TaskQueue, func() error, error) {
 	if cfg.TaskQueue.PrimindTasksURL == "" {
 		slog.Warn("PRIMIND_TASKS_URL not set, task queue registration disabled")
 
 		return nil, nil, nil
 	}
 
-	taskQueue := client.NewPrimindTasksClient(
+	tq := taskqueue.NewPrimindTasksClient(
 		cfg.TaskQueue.PrimindTasksURL,
 		cfg.TaskQueue.QueueName,
 		cfg.TaskQueue.MaxRetries,
@@ -32,7 +32,7 @@ func initTaskQueue(_ context.Context, cfg *config.Config) (client.TaskQueue, fun
 		slog.String("queue", cfg.TaskQueue.QueueName),
 	)
 
-	return taskQueue, nil, nil
+	return tq, nil, nil
 }
 
 func initObservability(ctx context.Context) (*observability.Resources, error) {

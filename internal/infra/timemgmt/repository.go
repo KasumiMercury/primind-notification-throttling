@@ -1,11 +1,11 @@
-package client
+package timemgmt
 
 import (
 	"context"
 	"time"
 )
 
-//go:generate mockgen -source=remind_time.go -destination=remind_time_mock.go -package=client
+//go:generate mockgen -source=repository.go -destination=mock.go -package=timemgmt
 
 type RemindTimeRepository interface {
 	GetRemindsByTimeRange(ctx context.Context, start, end time.Time) (*RemindsResponse, error)

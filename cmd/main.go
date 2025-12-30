@@ -11,14 +11,21 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/extra/redisotel/v9"
+	"github.com/redis/go-redis/v9"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/repository"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 // Version is set via ldflags at build time
@@ -47,7 +54,11 @@ func run() int {
 
 	slog.SetDefault(obs.Logger())
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load configuration", slog.String("error", err.Error()))
+		return 1
+	}
 
 	// Validate configuration
 	if cfg.RemindTimeManagementURL == "" {
@@ -67,7 +78,7 @@ func run() int {
 	}
 
 	// Initialize dependencies
-	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
+	remindTimeClient := timemgmt.NewClient(cfg.RemindTimeManagementURL)
 
 	// Initialize task queue
 	taskQueue, cleanup, err := initTaskQueue(ctx, cfg)
@@ -83,9 +94,69 @@ func run() int {
 		}()
 	}
 
-	// Create services and handlers
-	throttleService := service.NewThrottleService(remindTimeClient, taskQueue)
-	throttleHandler := handler.NewThrottleHandler(throttleService, cfg)
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+
+	if err := redisotel.InstrumentTracing(redisClient); err != nil {
+		slog.Error("failed to instrument redis tracing",
+			slog.String("event", "redis.otel.tracing.fail"),
+			slog.String("error", err.Error()),
+		)
+		return 1
+	}
+
+	if err := redisotel.InstrumentMetrics(redisClient); err != nil {
+		slog.Error("failed to instrument redis metrics",
+			slog.String("event", "redis.otel.metrics.fail"),
+			slog.String("error", err.Error()),
+		)
+		return 1
+	}
+
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		slog.Error("failed to connect redis",
+			slog.String("event", "redis.connect.fail"),
+			slog.String("error", err.Error()),
+		)
+		return 1
+	}
+
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			slog.Warn("failed to close redis client", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("redis connected",
+		slog.String("addr", cfg.Redis.Addr),
+	)
+
+	throttleRepo := repository.NewThrottleRepository(redisClient)
+
+	laneClassifier := lane.NewClassifier()
+	slotCounter := slot.NewCounter(throttleRepo)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
+
+	smoothingStrategy := smoothing.NewPassthroughStrategy()
+
+	throttleService := throttle.NewService(
+		remindTimeClient,
+		taskQueue,
+		throttleRepo,
+		laneClassifier,
+		slotCalculator,
+	)
+	planService := plan.NewService(
+		remindTimeClient,
+		throttleRepo,
+		laneClassifier,
+		slotCalculator,
+		smoothingStrategy,
+	)
+	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
 	// Setup router with observability middleware
@@ -127,7 +198,9 @@ func run() int {
 		slog.Info("starting server",
 			slog.String("port", cfg.Port),
 			slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
-			slog.Int("time_range_minutes", cfg.TimeRangeMinutes),
+			slog.Int("confirm_window_minutes", cfg.Throttle.ConfirmWindowMinutes),
+			slog.Int("request_cap_per_minute", cfg.Throttle.RequestCapPerMinute),
+			slog.Int("planning_window_minutes", cfg.Throttle.PlanningWindowMinutes),
 		)
 		serverErr <- srv.ListenAndServe()
 	}()

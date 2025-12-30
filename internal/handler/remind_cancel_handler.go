@@ -9,14 +9,14 @@ import (
 
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 type RemindCancelHandler struct {
-	throttleService *service.ThrottleService
+	throttleService *throttle.Service
 }
 
-func NewRemindCancelHandler(throttleService *service.ThrottleService) *RemindCancelHandler {
+func NewRemindCancelHandler(throttleService *throttle.Service) *RemindCancelHandler {
 	return &RemindCancelHandler{
 		throttleService: throttleService,
 	}

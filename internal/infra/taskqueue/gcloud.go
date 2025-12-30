@@ -1,6 +1,6 @@
 //go:build gcloud
 
-package client
+package taskqueue
 
 import (
 	"context"
