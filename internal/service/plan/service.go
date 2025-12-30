@@ -1,30 +1,33 @@
-package service
+package plan
 
 import (
 	"context"
 	"log/slog"
 	"time"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
 )
 
-type PlanService struct {
-	remindTimeClient  client.RemindTimeRepository
+type Service struct {
+	remindTimeClient  timemgmt.RemindTimeRepository
 	throttleRepo      domain.ThrottleRepository
-	laneClassifier    *LaneClassifier
-	slotCalculator    *SlotCalculator
-	smoothingStrategy SmoothingStrategy
+	laneClassifier    *lane.Classifier
+	slotCalculator    *slot.Calculator
+	smoothingStrategy smoothing.Strategy
 }
 
-func NewPlanService(
-	remindTimeClient client.RemindTimeRepository,
+func NewService(
+	remindTimeClient timemgmt.RemindTimeRepository,
 	throttleRepo domain.ThrottleRepository,
-	laneClassifier *LaneClassifier,
-	slotCalculator *SlotCalculator,
-	smoothingStrategy SmoothingStrategy,
-) *PlanService {
-	return &PlanService{
+	laneClassifier *lane.Classifier,
+	slotCalculator *slot.Calculator,
+	smoothingStrategy smoothing.Strategy,
+) *Service {
+	return &Service{
 		remindTimeClient:  remindTimeClient,
 		throttleRepo:      throttleRepo,
 		laneClassifier:    laneClassifier,
@@ -33,7 +36,7 @@ func NewPlanService(
 	}
 }
 
-func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*PlanResponse, error) {
+func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Response, error) {
 	// Fetch reminds in the planning window
 	remindsResp, err := s.remindTimeClient.GetRemindsByTimeRange(ctx, start, end)
 	if err != nil {
@@ -59,12 +62,12 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 	)
 
 	// Separate Strict and Loose reminds
-	var strictReminds, looseReminds []client.RemindResponse
-	skippedResults := make([]PlanResultItem, 0)
+	var strictReminds, looseReminds []timemgmt.RemindResponse
+	skippedResults := make([]ResultItem, 0)
 	skippedCount := 0
 
 	for _, remind := range unthrottledReminds {
-		lane := s.laneClassifier.Classify(remind)
+		classifiedLane := s.laneClassifier.Classify(remind)
 
 		// Check if already committed or planned
 		if s.throttleRepo != nil {
@@ -78,11 +81,11 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 				slog.DebugContext(ctx, "skipping already committed remind in planning",
 					slog.String("remind_id", remind.ID),
 				)
-				skippedResults = append(skippedResults, PlanResultItem{
+				skippedResults = append(skippedResults, ResultItem{
 					RemindID:     remind.ID,
 					TaskID:       remind.TaskID,
 					TaskType:     remind.TaskType,
-					Lane:         lane,
+					Lane:         classifiedLane,
 					OriginalTime: remind.Time,
 					PlannedTime:  remind.Time,
 					Skipped:      true,
@@ -97,11 +100,11 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 				slog.DebugContext(ctx, "skipping already planned remind",
 					slog.String("remind_id", remind.ID),
 				)
-				skippedResults = append(skippedResults, PlanResultItem{
+				skippedResults = append(skippedResults, ResultItem{
 					RemindID:     remind.ID,
 					TaskID:       remind.TaskID,
 					TaskType:     remind.TaskType,
-					Lane:         lane,
+					Lane:         classifiedLane,
 					OriginalTime: remind.Time,
 					PlannedTime:  remind.Time,
 					Skipped:      true,
@@ -113,7 +116,7 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 		}
 
 		// Classify into Strict or Loose
-		if lane.IsStrict() {
+		if classifiedLane.IsStrict() {
 			strictReminds = append(strictReminds, remind)
 		} else {
 			looseReminds = append(looseReminds, remind)
@@ -126,7 +129,7 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 		slog.Int("skipped_count", skippedCount),
 	)
 
-	results := make([]PlanResultItem, 0, len(strictReminds)+len(looseReminds))
+	results := make([]ResultItem, 0, len(strictReminds)+len(looseReminds))
 	results = append(results, skippedResults...)
 	plannedCount := 0
 	shiftedCount := 0
@@ -136,12 +139,12 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 
 	// Process Strict lane
 	for _, remind := range strictReminds {
-		lane := domain.LaneStrict
-		result := PlanResultItem{
+		classifiedLane := domain.LaneStrict
+		result := ResultItem{
 			RemindID:     remind.ID,
 			TaskID:       remind.TaskID,
 			TaskType:     remind.TaskType,
-			Lane:         lane,
+			Lane:         classifiedLane,
 			OriginalTime: remind.Time,
 			PlannedTime:  remind.Time,
 		}
@@ -150,7 +153,7 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 			ctx,
 			remind.Time,
 			int(remind.SlideWindowWidth),
-			lane,
+			classifiedLane,
 		)
 		result.PlannedTime = plannedTime
 		result.WasShifted = wasShifted
@@ -173,7 +176,7 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 			remind.ID,
 			remind.Time,
 			plannedTime,
-			lane,
+			classifiedLane,
 		))
 
 		if s.throttleRepo != nil {
@@ -202,12 +205,12 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 		}
 
 		for _, remind := range looseReminds {
-			lane := domain.LaneLoose
-			result := PlanResultItem{
+			classifiedLane := domain.LaneLoose
+			result := ResultItem{
 				RemindID:     remind.ID,
 				TaskID:       remind.TaskID,
 				TaskType:     remind.TaskType,
-				Lane:         lane,
+				Lane:         classifiedLane,
 				OriginalTime: remind.Time,
 				PlannedTime:  remind.Time,
 			}
@@ -221,14 +224,14 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 					int(remind.SlideWindowWidth),
 					allocations,
 				)
-				UpdateAllocation(allocations, domain.MinuteKey(plannedTime))
+				smoothing.UpdateAllocation(allocations, domain.MinuteKey(plannedTime))
 			} else {
 				// Fall back to existing SlotCalculator
 				plannedTime, wasShifted = s.slotCalculator.FindSlot(
 					ctx,
 					remind.Time,
 					int(remind.SlideWindowWidth),
-					lane,
+					classifiedLane,
 				)
 			}
 
@@ -254,7 +257,7 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 				remind.ID,
 				remind.Time,
 				plannedTime,
-				lane,
+				classifiedLane,
 			))
 
 			if s.throttleRepo != nil {
@@ -277,10 +280,20 @@ func (s *PlanService) PlanReminds(ctx context.Context, start, end time.Time) (*P
 		slog.Int("shifted_count", shiftedCount),
 	)
 
-	return &PlanResponse{
+	return &Response{
 		PlannedCount: plannedCount,
 		SkippedCount: skippedCount,
 		ShiftedCount: shiftedCount,
 		Results:      results,
 	}, nil
+}
+
+func filterUnthrottled(reminds []timemgmt.RemindResponse) []timemgmt.RemindResponse {
+	filtered := make([]timemgmt.RemindResponse, 0, len(reminds))
+	for _, remind := range reminds {
+		if !remind.Throttled {
+			filtered = append(filtered, remind)
+		}
+	}
+	return filtered
 }

@@ -1,4 +1,4 @@
-package service
+package smoothing
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func UpdateAllocation(allocations []MinuteAllocation, minuteKey string) {
 	}
 }
 
-type SmoothingStrategy interface {
+type Strategy interface {
 	CalculateAllocations(ctx context.Context, start, end time.Time, totalCount int) ([]MinuteAllocation, error)
 	FindBestSlot(originalTime time.Time, slideWindowSeconds int, allocations []MinuteAllocation) (time.Time, bool)
 }

@@ -1,14 +1,14 @@
-package service
+package lane
 
 import (
 	"testing"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 )
 
-func TestLaneClassifier_Classify(t *testing.T) {
-	classifier := NewLaneClassifier()
+func TestClassifier_Classify(t *testing.T) {
+	classifier := NewClassifier()
 
 	tests := []struct {
 		name             string
@@ -71,7 +71,7 @@ func TestLaneClassifier_Classify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			remind := client.RemindResponse{
+			remind := timemgmt.RemindResponse{
 				ID:               "remind-1",
 				TaskID:           "task-1",
 				SlideWindowWidth: tt.slideWindowWidth,
@@ -86,8 +86,8 @@ func TestLaneClassifier_Classify(t *testing.T) {
 	}
 }
 
-func TestLaneClassifier_ClassifyWithThreshold(t *testing.T) {
-	classifier := NewLaneClassifier()
+func TestClassifier_ClassifyWithThreshold(t *testing.T) {
+	classifier := NewClassifier()
 
 	// Verify the threshold constant value is now 150
 	if StrictSlideWindowThreshold != 150 {
@@ -95,7 +95,7 @@ func TestLaneClassifier_ClassifyWithThreshold(t *testing.T) {
 	}
 
 	// Boundary test: exactly at threshold should be Strict
-	remind := client.RemindResponse{
+	remind := timemgmt.RemindResponse{
 		SlideWindowWidth: StrictSlideWindowThreshold,
 	}
 	if got := classifier.Classify(remind); got != domain.LaneStrict {
@@ -109,10 +109,10 @@ func TestLaneClassifier_ClassifyWithThreshold(t *testing.T) {
 	}
 }
 
-// TestLaneClassifier_IntegrationWithTimeMgmtWidths verifies classification
+// TestClassifier_IntegrationWithTimeMgmtWidths verifies classification
 // aligns with the new time-mgmt window widths
-func TestLaneClassifier_IntegrationWithTimeMgmtWidths(t *testing.T) {
-	classifier := NewLaneClassifier()
+func TestClassifier_IntegrationWithTimeMgmtWidths(t *testing.T) {
+	classifier := NewClassifier()
 
 	tests := []struct {
 		name             string
@@ -156,7 +156,7 @@ func TestLaneClassifier_IntegrationWithTimeMgmtWidths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			remind := client.RemindResponse{
+			remind := timemgmt.RemindResponse{
 				SlideWindowWidth: tt.slideWindowWidth,
 			}
 

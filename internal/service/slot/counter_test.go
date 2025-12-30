@@ -1,4 +1,4 @@
-package service
+package slot
 
 import (
 	"context"
@@ -10,12 +10,12 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestSlotCounter_GetTotalCountForMinute_Success(t *testing.T) {
+func TestCounter_GetTotalCountForMinute_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockRepo := domain.NewMockThrottleRepository(ctrl)
-	counter := NewSlotCounter(mockRepo)
+	counter := NewCounter(mockRepo)
 
 	ctx := context.Background()
 	minuteKey := "2025-01-01-12-00"
@@ -33,12 +33,12 @@ func TestSlotCounter_GetTotalCountForMinute_Success(t *testing.T) {
 	}
 }
 
-func TestSlotCounter_GetTotalCountForMinute_CommittedError(t *testing.T) {
+func TestCounter_GetTotalCountForMinute_CommittedError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockRepo := domain.NewMockThrottleRepository(ctrl)
-	counter := NewSlotCounter(mockRepo)
+	counter := NewCounter(mockRepo)
 
 	ctx := context.Background()
 	minuteKey := "2025-01-01-12-00"
@@ -62,12 +62,12 @@ func TestSlotCounter_GetTotalCountForMinute_CommittedError(t *testing.T) {
 	}
 }
 
-func TestSlotCounter_GetTotalCountForMinute_PlannedError(t *testing.T) {
+func TestCounter_GetTotalCountForMinute_PlannedError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockRepo := domain.NewMockThrottleRepository(ctrl)
-	counter := NewSlotCounter(mockRepo)
+	counter := NewCounter(mockRepo)
 
 	ctx := context.Background()
 	minuteKey := "2025-01-01-12-00"
@@ -91,12 +91,12 @@ func TestSlotCounter_GetTotalCountForMinute_PlannedError(t *testing.T) {
 	}
 }
 
-func TestSlotCounter_GetTotalCountForMinute_BothErrors(t *testing.T) {
+func TestCounter_GetTotalCountForMinute_BothErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockRepo := domain.NewMockThrottleRepository(ctrl)
-	counter := NewSlotCounter(mockRepo)
+	counter := NewCounter(mockRepo)
 
 	ctx := context.Background()
 	minuteKey := "2025-01-01-12-00"
@@ -120,12 +120,12 @@ func TestSlotCounter_GetTotalCountForMinute_BothErrors(t *testing.T) {
 	}
 }
 
-func TestSlotCounter_GetTotalCountForMinute_ZeroCounts(t *testing.T) {
+func TestCounter_GetTotalCountForMinute_ZeroCounts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockRepo := domain.NewMockThrottleRepository(ctrl)
-	counter := NewSlotCounter(mockRepo)
+	counter := NewCounter(mockRepo)
 
 	ctx := context.Background()
 	minuteKey := "2025-01-01-12-00"

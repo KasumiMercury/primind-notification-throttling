@@ -1,4 +1,4 @@
-package service
+package slot
 
 import (
 	"context"
@@ -8,21 +8,21 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
 
-type SlotCounter interface {
+type Counter interface {
 	GetTotalCountForMinute(ctx context.Context, minuteKey string) (int, error)
 }
 
-type slotCounterImpl struct {
+type counterImpl struct {
 	throttleRepo domain.ThrottleRepository
 }
 
-func NewSlotCounter(throttleRepo domain.ThrottleRepository) SlotCounter {
-	return &slotCounterImpl{
+func NewCounter(throttleRepo domain.ThrottleRepository) Counter {
+	return &counterImpl{
 		throttleRepo: throttleRepo,
 	}
 }
 
-func (s *slotCounterImpl) GetTotalCountForMinute(ctx context.Context, minuteKey string) (int, error) {
+func (s *counterImpl) GetTotalCountForMinute(ctx context.Context, minuteKey string) (int, error) {
 	var (
 		totalCount   int
 		committedErr error

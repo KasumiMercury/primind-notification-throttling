@@ -1,4 +1,4 @@
-package service
+package smoothing
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
 
-func TestPassthroughSmoothingStrategy_CalculateAllocations_ReturnsNil(t *testing.T) {
-	strategy := NewPassthroughSmoothingStrategy()
+func TestPassthroughStrategy_CalculateAllocations_ReturnsNil(t *testing.T) {
+	strategy := NewPassthroughStrategy()
 
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
@@ -26,8 +26,8 @@ func TestPassthroughSmoothingStrategy_CalculateAllocations_ReturnsNil(t *testing
 	}
 }
 
-func TestPassthroughSmoothingStrategy_FindBestSlot_ReturnsOriginalTime(t *testing.T) {
-	strategy := NewPassthroughSmoothingStrategy()
+func TestPassthroughStrategy_FindBestSlot_ReturnsOriginalTime(t *testing.T) {
+	strategy := NewPassthroughStrategy()
 
 	now := time.Now().Truncate(time.Minute)
 	originalTime := now.Add(10 * time.Minute)
@@ -48,8 +48,8 @@ func TestPassthroughSmoothingStrategy_FindBestSlot_ReturnsOriginalTime(t *testin
 	}
 }
 
-func TestPassthroughSmoothingStrategy_FindBestSlot_WithNilAllocations(t *testing.T) {
-	strategy := NewPassthroughSmoothingStrategy()
+func TestPassthroughStrategy_FindBestSlot_WithNilAllocations(t *testing.T) {
+	strategy := NewPassthroughStrategy()
 
 	now := time.Now().Truncate(time.Minute)
 	originalTime := now.Add(10 * time.Minute)
@@ -64,8 +64,8 @@ func TestPassthroughSmoothingStrategy_FindBestSlot_WithNilAllocations(t *testing
 	}
 }
 
-func TestPassthroughSmoothingStrategy_FindBestSlot_IgnoresSlideWindow(t *testing.T) {
-	strategy := NewPassthroughSmoothingStrategy()
+func TestPassthroughStrategy_FindBestSlot_IgnoresSlideWindow(t *testing.T) {
+	strategy := NewPassthroughStrategy()
 
 	now := time.Now().Truncate(time.Minute)
 	originalTime := now.Add(10 * time.Minute)
@@ -81,8 +81,8 @@ func TestPassthroughSmoothingStrategy_FindBestSlot_IgnoresSlideWindow(t *testing
 	}
 }
 
-func TestPassthroughSmoothingStrategy_ImplementsSmoothingStrategy(t *testing.T) {
+func TestPassthroughStrategy_ImplementsStrategy(t *testing.T) {
 	// This test verifies the interface implementation at compile time
-	var _ SmoothingStrategy = (*PassthroughSmoothingStrategy)(nil)
-	var _ SmoothingStrategy = NewPassthroughSmoothingStrategy()
+	var _ Strategy = (*PassthroughStrategy)(nil)
+	var _ Strategy = NewPassthroughStrategy()
 }

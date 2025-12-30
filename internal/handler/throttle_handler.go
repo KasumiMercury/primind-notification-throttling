@@ -12,18 +12,19 @@ import (
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 type ThrottleHandler struct {
-	throttleService *service.ThrottleService
-	planService     *service.PlanService
+	throttleService *throttle.Service
+	planService     *plan.Service
 	config          *config.Config
 }
 
 func NewThrottleHandler(
-	throttleService *service.ThrottleService,
-	planService *service.PlanService,
+	throttleService *throttle.Service,
+	planService *plan.Service,
 	cfg *config.Config,
 ) *ThrottleHandler {
 	return &ThrottleHandler{
@@ -105,7 +106,7 @@ func respondProtoError(c *gin.Context, status int, message string) {
 	c.Data(status, "application/json", respBytes)
 }
 
-func respondProtoThrottleResponse(c *gin.Context, status int, result *service.ThrottleResponse) {
+func respondProtoThrottleResponse(c *gin.Context, status int, result *throttle.Response) {
 	protoResults := make([]*throttlev1.ThrottleResultItem, 0, len(result.Results))
 	for _, r := range result.Results {
 		protoResults = append(protoResults, &throttlev1.ThrottleResultItem{

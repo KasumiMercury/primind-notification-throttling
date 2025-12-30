@@ -1,4 +1,4 @@
-package service
+package plan
 
 import (
 	"context"
@@ -6,41 +6,44 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
 	"go.uber.org/mock/gomock"
 )
 
-func createTestPlanService(
-	remindClient client.RemindTimeRepository,
+func createTestService(
+	remindClient timemgmt.RemindTimeRepository,
 	throttleRepo domain.ThrottleRepository,
 	requestCapPerMinute int,
-) *PlanService {
-	laneClassifier := NewLaneClassifier()
-	slotCounter := NewSlotCounter(throttleRepo)
-	slotCalculator := NewSlotCalculator(slotCounter, requestCapPerMinute)
-	smoothingStrategy := NewPassthroughSmoothingStrategy()
-	return NewPlanService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy)
+) *Service {
+	laneClassifier := lane.NewClassifier()
+	slotCounter := slot.NewCounter(throttleRepo)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
+	smoothingStrategy := smoothing.NewPassthroughStrategy()
+	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy)
 }
 
 func TestPlanRemindsSuccess(t *testing.T) {
 	tests := []struct {
 		name        string
-		reminds     []client.RemindResponse
+		reminds     []timemgmt.RemindResponse
 		wantPlanned int
 		wantSkipped int
 		wantShifted int
 	}{
 		{
 			name:        "empty reminds returns empty plan",
-			reminds:     []client.RemindResponse{},
+			reminds:     []timemgmt.RemindResponse{},
 			wantPlanned: 0,
 			wantSkipped: 0,
 			wantShifted: 0,
 		},
 		{
 			name: "single strict remind is planned at original time",
-			reminds: []client.RemindResponse{
+			reminds: []timemgmt.RemindResponse{
 				{
 					ID:               "remind-1",
 					TaskID:           "task-1",
@@ -56,7 +59,7 @@ func TestPlanRemindsSuccess(t *testing.T) {
 		},
 		{
 			name: "single loose remind is planned at original time when under cap",
-			reminds: []client.RemindResponse{
+			reminds: []timemgmt.RemindResponse{
 				{
 					ID:               "remind-1",
 					TaskID:           "task-1",
@@ -72,7 +75,7 @@ func TestPlanRemindsSuccess(t *testing.T) {
 		},
 		{
 			name: "throttled reminds are filtered out",
-			reminds: []client.RemindResponse{
+			reminds: []timemgmt.RemindResponse{
 				{
 					ID:               "remind-1",
 					TaskID:           "task-1",
@@ -93,13 +96,13 @@ func TestPlanRemindsSuccess(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+			mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 			mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
 			// Setup expectations
 			mockRemindClient.EXPECT().
 				GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(&client.RemindsResponse{
+				Return(&timemgmt.RemindsResponse{
 					Reminds: tt.reminds,
 					Count:   len(tt.reminds),
 				}, nil)
@@ -129,7 +132,7 @@ func TestPlanRemindsSuccess(t *testing.T) {
 					Return(nil).AnyTimes()
 			}
 
-			svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+			svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 			ctx := context.Background()
 			start := time.Now().Add(5 * time.Minute)
@@ -156,12 +159,12 @@ func TestPlanRemindsSuccess(t *testing.T) {
 func TestPlanRemindsError(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupMocks    func(*client.MockRemindTimeRepository, *domain.MockThrottleRepository)
+		setupMocks    func(*timemgmt.MockRemindTimeRepository, *domain.MockThrottleRepository)
 		expectedError string
 	}{
 		{
 			name: "GetRemindsByTimeRange error",
-			setupMocks: func(mockRemind *client.MockRemindTimeRepository, mockThrottle *domain.MockThrottleRepository) {
+			setupMocks: func(mockRemind *timemgmt.MockRemindTimeRepository, mockThrottle *domain.MockThrottleRepository) {
 				mockRemind.EXPECT().
 					GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("connection error"))
@@ -175,12 +178,12 @@ func TestPlanRemindsError(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+			mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 			mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
 			tt.setupMocks(mockRemindClient, mockThrottleRepo)
 
-			svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+			svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 			ctx := context.Background()
 			start := time.Now().Add(5 * time.Minute)
@@ -201,10 +204,10 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+	mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 	mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
-	reminds := []client.RemindResponse{
+	reminds := []timemgmt.RemindResponse{
 		{
 			ID:               "remind-committed",
 			TaskID:           "task-1",
@@ -217,7 +220,7 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 
 	mockRemindClient.EXPECT().
 		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(&client.RemindsResponse{
+		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
 		}, nil)
@@ -226,7 +229,7 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 		IsPacketCommitted(gomock.Any(), "remind-committed").
 		Return(true, nil)
 
-	svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 	ctx := context.Background()
 	start := time.Now().Add(5 * time.Minute)
@@ -255,11 +258,11 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+	mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 	mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
 	now := time.Now()
-	reminds := []client.RemindResponse{
+	reminds := []timemgmt.RemindResponse{
 		{
 			ID:               "remind-planned",
 			TaskID:           "task-1",
@@ -272,7 +275,7 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 
 	mockRemindClient.EXPECT().
 		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(&client.RemindsResponse{
+		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
 		}, nil)
@@ -290,7 +293,7 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 			Lane:         domain.LaneLoose,
 		}, nil)
 
-	svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 	ctx := context.Background()
 	start := time.Now().Add(5 * time.Minute)
@@ -319,13 +322,13 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+	mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 	mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
 	now := time.Now().Truncate(time.Minute)
 	originalTime := now.Add(10 * time.Minute)
 
-	reminds := []client.RemindResponse{
+	reminds := []timemgmt.RemindResponse{
 		{
 			ID:               "remind-strict",
 			TaskID:           "task-1",
@@ -338,7 +341,7 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 
 	mockRemindClient.EXPECT().
 		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(&client.RemindsResponse{
+		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
 		}, nil)
@@ -364,7 +367,7 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 		SavePlan(gomock.Any(), gomock.Any()).
 		Return(nil)
 
-	svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 	ctx := context.Background()
 	start := now.Add(5 * time.Minute)
@@ -396,13 +399,13 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockRemindClient := client.NewMockRemindTimeRepository(ctrl)
+	mockRemindClient := timemgmt.NewMockRemindTimeRepository(ctrl)
 	mockThrottleRepo := domain.NewMockThrottleRepository(ctrl)
 
 	now := time.Now().Truncate(time.Minute)
 	originalTime := now.Add(10 * time.Minute)
 
-	reminds := []client.RemindResponse{
+	reminds := []timemgmt.RemindResponse{
 		{
 			ID:               "remind-strict",
 			TaskID:           "task-1",
@@ -415,7 +418,7 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 
 	mockRemindClient.EXPECT().
 		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(&client.RemindsResponse{
+		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
 		}, nil)
@@ -443,7 +446,7 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 		SavePlan(gomock.Any(), gomock.Any()).
 		Return(nil)
 
-	svc := createTestPlanService(mockRemindClient, mockThrottleRepo, 60)
+	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
 	ctx := context.Background()
 	start := now.Add(5 * time.Minute)

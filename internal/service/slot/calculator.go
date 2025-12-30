@@ -1,4 +1,4 @@
-package service
+package slot
 
 import (
 	"context"
@@ -8,19 +8,19 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
 
-type SlotCalculator struct {
-	slotCounter         SlotCounter
+type Calculator struct {
+	slotCounter         Counter
 	requestCapPerMinute int
 }
 
-func NewSlotCalculator(slotCounter SlotCounter, requestCapPerMinute int) *SlotCalculator {
-	return &SlotCalculator{
+func NewCalculator(slotCounter Counter, requestCapPerMinute int) *Calculator {
+	return &Calculator{
 		slotCounter:         slotCounter,
 		requestCapPerMinute: requestCapPerMinute,
 	}
 }
 
-func (c *SlotCalculator) FindSlot(
+func (c *Calculator) FindSlot(
 	ctx context.Context,
 	originalTime time.Time,
 	slideWindowSeconds int,

@@ -7,14 +7,14 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/taskqueue"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
 )
 
-func initTaskQueue(ctx context.Context, cfg *config.Config) (client.TaskQueue, func() error, error) {
-	cloudTasksClient, err := client.NewCloudTasksClient(ctx, client.CloudTasksConfig{
+func initTaskQueue(ctx context.Context, cfg *config.Config) (taskqueue.TaskQueue, func() error, error) {
+	cloudTasksClient, err := taskqueue.NewCloudTasksClient(ctx, taskqueue.CloudTasksConfig{
 		ProjectID:  cfg.TaskQueue.GCloudProjectID,
 		LocationID: cfg.TaskQueue.GCloudLocationID,
 		QueueID:    cfg.TaskQueue.GCloudQueueID,

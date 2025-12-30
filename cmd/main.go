@@ -14,14 +14,18 @@ import (
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/KasumiMercury/primind-notification-throttling/internal/client"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/repository"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/service"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 // Version is set via ldflags at build time
@@ -74,7 +78,7 @@ func run() int {
 	}
 
 	// Initialize dependencies
-	remindTimeClient := client.NewRemindTimeClient(cfg.RemindTimeManagementURL)
+	remindTimeClient := timemgmt.NewClient(cfg.RemindTimeManagementURL)
 
 	// Initialize task queue
 	taskQueue, cleanup, err := initTaskQueue(ctx, cfg)
@@ -132,20 +136,20 @@ func run() int {
 
 	throttleRepo := repository.NewThrottleRepository(redisClient)
 
-	laneClassifier := service.NewLaneClassifier()
-	slotCounter := service.NewSlotCounter(throttleRepo)
-	slotCalculator := service.NewSlotCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
+	laneClassifier := lane.NewClassifier()
+	slotCounter := slot.NewCounter(throttleRepo)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
 
-	smoothingStrategy := service.NewPassthroughSmoothingStrategy()
+	smoothingStrategy := smoothing.NewPassthroughStrategy()
 
-	throttleService := service.NewThrottleService(
+	throttleService := throttle.NewService(
 		remindTimeClient,
 		taskQueue,
 		throttleRepo,
 		laneClassifier,
 		slotCalculator,
 	)
-	planService := service.NewPlanService(
+	planService := plan.NewService(
 		remindTimeClient,
 		throttleRepo,
 		laneClassifier,
