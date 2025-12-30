@@ -7,6 +7,7 @@ import (
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
@@ -18,6 +19,7 @@ type Service struct {
 	laneClassifier    *lane.Classifier
 	slotCalculator    *slot.Calculator
 	smoothingStrategy smoothing.Strategy
+	throttleMetrics   *metrics.ThrottleMetrics
 }
 
 func NewService(
@@ -26,6 +28,7 @@ func NewService(
 	laneClassifier *lane.Classifier,
 	slotCalculator *slot.Calculator,
 	smoothingStrategy smoothing.Strategy,
+	throttleMetrics *metrics.ThrottleMetrics,
 ) *Service {
 	return &Service{
 		remindTimeClient:  remindTimeClient,
@@ -33,6 +36,7 @@ func NewService(
 		laneClassifier:    laneClassifier,
 		slotCalculator:    slotCalculator,
 		smoothingStrategy: smoothingStrategy,
+		throttleMetrics:   throttleMetrics,
 	}
 }
 
@@ -69,6 +73,11 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 	for _, remind := range unthrottledReminds {
 		classifiedLane := s.laneClassifier.Classify(remind)
 
+		// Record lane distribution for planning phase
+		if s.throttleMetrics != nil {
+			s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
+		}
+
 		// Check if already committed or planned
 		if s.throttleRepo != nil {
 			committed, err := s.throttleRepo.IsPacketCommitted(ctx, remind.ID)
@@ -92,6 +101,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 					SkipReason:   "already committed",
 				})
 				skippedCount++
+				if s.throttleMetrics != nil {
+					s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "skipped")
+				}
 				continue
 			}
 
@@ -111,6 +123,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 					SkipReason:   "already planned",
 				})
 				skippedCount++
+				if s.throttleMetrics != nil {
+					s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "skipped")
+				}
 				continue
 			}
 		}
@@ -160,6 +175,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 
 		if wasShifted {
 			shiftedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketShifted(ctx, "plan", classifiedLane.String())
+			}
 			slog.DebugContext(ctx, "strict remind shifted",
 				slog.String("remind_id", remind.ID),
 				slog.Time("original_time", remind.Time),
@@ -189,6 +207,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 		}
 
 		plannedCount++
+		if s.throttleMetrics != nil {
+			s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "success")
+		}
 		results = append(results, result)
 	}
 
@@ -240,6 +261,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 
 			if wasShifted {
 				shiftedCount++
+				if s.throttleMetrics != nil {
+					s.throttleMetrics.RecordPacketShifted(ctx, "plan", classifiedLane.String())
+				}
 				slog.DebugContext(ctx, "loose remind shifted (smoothing)",
 					slog.String("remind_id", remind.ID),
 					slog.Time("original_time", remind.Time),
@@ -270,6 +294,9 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Respo
 			}
 
 			plannedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "success")
+			}
 			results = append(results, result)
 		}
 	}

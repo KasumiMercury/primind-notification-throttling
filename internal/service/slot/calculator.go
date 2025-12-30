@@ -6,17 +6,20 @@ import (
 	"time"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 )
 
 type Calculator struct {
 	slotCounter         Counter
 	requestCapPerMinute int
+	throttleMetrics     *metrics.ThrottleMetrics
 }
 
-func NewCalculator(slotCounter Counter, requestCapPerMinute int) *Calculator {
+func NewCalculator(slotCounter Counter, requestCapPerMinute int, throttleMetrics *metrics.ThrottleMetrics) *Calculator {
 	return &Calculator{
 		slotCounter:         slotCounter,
 		requestCapPerMinute: requestCapPerMinute,
+		throttleMetrics:     throttleMetrics,
 	}
 }
 
@@ -26,6 +29,13 @@ func (c *Calculator) FindSlot(
 	slideWindowSeconds int,
 	lane domain.Lane,
 ) (scheduledTime time.Time, wasShifted bool) {
+	startTime := time.Now()
+	defer func() {
+		if c.throttleMetrics != nil {
+			c.throttleMetrics.RecordSlotCalculationDuration(ctx, lane.String(), time.Since(startTime))
+		}
+	}()
+
 	// If no cap configured, use original time
 	if c.requestCapPerMinute <= 0 {
 		return originalTime, false

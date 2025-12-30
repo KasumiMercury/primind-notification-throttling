@@ -21,9 +21,9 @@ func createTestService(
 ) *Service {
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
-	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy)
+	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy, nil)
 }
 
 func TestPlanRemindsSuccess(t *testing.T) {

@@ -77,6 +77,12 @@ func run() int {
 		return 1
 	}
 
+	throttleMetrics, err := metrics.NewThrottleMetrics()
+	if err != nil {
+		slog.Error("failed to initialize throttle metrics", slog.String("error", err.Error()))
+		return 1
+	}
+
 	// Initialize dependencies
 	remindTimeClient := timemgmt.NewClient(cfg.RemindTimeManagementURL)
 
@@ -138,7 +144,7 @@ func run() int {
 
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute, throttleMetrics)
 
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
 
@@ -148,6 +154,7 @@ func run() int {
 		throttleRepo,
 		laneClassifier,
 		slotCalculator,
+		throttleMetrics,
 	)
 	planService := plan.NewService(
 		remindTimeClient,
@@ -155,8 +162,9 @@ func run() int {
 		laneClassifier,
 		slotCalculator,
 		smoothingStrategy,
+		throttleMetrics,
 	)
-	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg)
+	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg, throttleMetrics)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
 	// Setup router with observability middleware
@@ -178,6 +186,11 @@ func run() int {
 		HTTPMetrics: httpMetrics,
 	}))
 	r.Use(middleware.PanicRecoveryGin())
+
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	})
 
 	// API routes
 	v1 := r.Group("/api/v1")

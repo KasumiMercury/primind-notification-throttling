@@ -23,8 +23,8 @@ func createTestService(
 ) *Service {
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
-	return NewService(remindClient, tq, throttleRepo, laneClassifier, slotCalculator)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
+	return NewService(remindClient, tq, throttleRepo, laneClassifier, slotCalculator, nil)
 }
 
 func TestExtractFCMTokens(t *testing.T) {

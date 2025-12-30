@@ -9,6 +9,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/taskqueue"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
 )
@@ -24,6 +25,7 @@ type Service struct {
 	throttleRepo     domain.ThrottleRepository
 	laneClassifier   *lane.Classifier
 	slotCalculator   *slot.Calculator
+	throttleMetrics  *metrics.ThrottleMetrics
 }
 
 func NewService(
@@ -32,6 +34,7 @@ func NewService(
 	throttleRepo domain.ThrottleRepository,
 	laneClassifier *lane.Classifier,
 	slotCalculator *slot.Calculator,
+	throttleMetrics *metrics.ThrottleMetrics,
 ) *Service {
 	return &Service{
 		remindTimeClient: remindTimeClient,
@@ -39,6 +42,7 @@ func NewService(
 		throttleRepo:     throttleRepo,
 		laneClassifier:   laneClassifier,
 		slotCalculator:   slotCalculator,
+		throttleMetrics:  throttleMetrics,
 	}
 }
 
@@ -70,6 +74,11 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 	for _, remind := range unthrottledReminds {
 		fcmTokens := s.ExtractFCMTokens(remind.Devices)
 		classifiedLane := s.laneClassifier.Classify(remind)
+
+		// Record lane distribution
+		if s.throttleMetrics != nil {
+			s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
+		}
 
 		slog.DebugContext(ctx, "processing remind",
 			slog.String("remind_id", remind.ID),
@@ -107,6 +116,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 				result.Skipped = true
 				result.SkipReason = "already committed"
 				skippedCount++
+				if s.throttleMetrics != nil {
+					s.throttleMetrics.RecordPacketProcessed(ctx, "commit", classifiedLane.String(), "skipped")
+				}
 				results = append(results, result)
 				continue
 			}
@@ -120,6 +132,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 			result.Skipped = true
 			result.SkipReason = "no FCM tokens"
 			skippedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketProcessed(ctx, "commit", classifiedLane.String(), "skipped")
+			}
 			results = append(results, result)
 			continue
 		}
@@ -141,6 +156,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 
 		if wasShifted {
 			shiftedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketShifted(ctx, "commit", classifiedLane.String())
+			}
 			slog.InfoContext(ctx, "reminder shifted",
 				slog.String("remind_id", remind.ID),
 				slog.Time("original_time", remind.Time),
@@ -158,6 +176,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 			result.Success = false
 			result.Error = err.Error()
 			failedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketProcessed(ctx, "commit", classifiedLane.String(), "failed")
+			}
 			results = append(results, result)
 			return &Response{
 				ProcessedCount: len(results),
@@ -201,6 +222,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 			result.Success = false
 			result.Error = err.Error()
 			failedCount++
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordPacketProcessed(ctx, "commit", classifiedLane.String(), "failed")
+			}
 			results = append(results, result)
 			return &Response{
 				ProcessedCount: len(results),
@@ -213,6 +237,9 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time) (*Re
 		}
 
 		successCount++
+		if s.throttleMetrics != nil {
+			s.throttleMetrics.RecordPacketProcessed(ctx, "commit", classifiedLane.String(), "success")
+		}
 		results = append(results, result)
 	}
 

@@ -11,26 +11,31 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/tracing"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 type ThrottleHandler struct {
-	throttleService *throttle.Service
-	planService     *plan.Service
-	config          *config.Config
+	throttleService  *throttle.Service
+	planService      *plan.Service
+	config           *config.Config
+	throttleMetrics  *metrics.ThrottleMetrics
 }
 
 func NewThrottleHandler(
 	throttleService *throttle.Service,
 	planService *plan.Service,
 	cfg *config.Config,
+	throttleMetrics *metrics.ThrottleMetrics,
 ) *ThrottleHandler {
 	return &ThrottleHandler{
-		throttleService: throttleService,
-		planService:     planService,
-		config:          cfg,
+		throttleService:  throttleService,
+		planService:      planService,
+		config:           cfg,
+		throttleMetrics:  throttleMetrics,
 	}
 }
 
@@ -48,19 +53,31 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 			slog.Time("plan_end", planEnd),
 		)
 
-		planResult, err := h.planService.PlanReminds(ctx, planStart, planEnd)
+		planCtx, planSpan := tracing.StartPlanningPhaseSpan(ctx, planStart, planEnd)
+		planStartTime := time.Now()
+
+		planResult, err := h.planService.PlanReminds(planCtx, planStart, planEnd)
+
+		planDuration := time.Since(planStartTime)
+		if h.throttleMetrics != nil {
+			h.throttleMetrics.RecordPlanningPhaseDuration(planCtx, planDuration)
+		}
+
 		if err != nil {
+			tracing.RecordPlanningPhaseResult(planSpan, 0, 0, 0, err)
 			slog.WarnContext(ctx, "planning phase failed, continuing to commit phase",
 				slog.String("error", err.Error()),
 			)
 			// Continue to commit phase even if planning fails
 		} else {
+			tracing.RecordPlanningPhaseResult(planSpan, planResult.PlannedCount, planResult.SkippedCount, planResult.ShiftedCount, nil)
 			slog.InfoContext(ctx, "planning phase completed",
 				slog.Int("planned_count", planResult.PlannedCount),
 				slog.Int("skipped_count", planResult.SkippedCount),
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
 		}
+		planSpan.End()
 	}
 
 	commitStart := now
@@ -71,14 +88,28 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 		slog.Time("commit_end", commitEnd),
 	)
 
-	result, err := h.throttleService.ProcessReminds(ctx, commitStart, commitEnd)
+	commitCtx, commitSpan := tracing.StartCommitPhaseSpan(ctx, commitStart, commitEnd)
+	commitStartTime := time.Now()
+
+	result, err := h.throttleService.ProcessReminds(commitCtx, commitStart, commitEnd)
+
+	commitDuration := time.Since(commitStartTime)
+	if h.throttleMetrics != nil {
+		h.throttleMetrics.RecordCommitPhaseDuration(commitCtx, commitDuration)
+	}
+
 	if err != nil {
+		tracing.RecordCommitPhaseResult(commitSpan, 0, 0, 0, 0, 0, err)
+		commitSpan.End()
 		slog.ErrorContext(ctx, "commit phase failed",
 			slog.String("error", err.Error()),
 		)
 		respondProtoError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	tracing.RecordCommitPhaseResult(commitSpan, result.ProcessedCount, result.SuccessCount, result.FailedCount, result.SkippedCount, result.ShiftedCount, nil)
+	commitSpan.End()
 
 	slog.InfoContext(ctx, "commit phase completed",
 		slog.Int("processed", result.ProcessedCount),
