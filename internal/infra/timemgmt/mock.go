@@ -42,18 +42,18 @@ func (m *MockRemindTimeRepository) EXPECT() *MockRemindTimeRepositoryMockRecorde
 }
 
 // GetRemindsByTimeRange mocks base method.
-func (m *MockRemindTimeRepository) GetRemindsByTimeRange(ctx context.Context, start, end time.Time) (*RemindsResponse, error) {
+func (m *MockRemindTimeRepository) GetRemindsByTimeRange(ctx context.Context, start, end time.Time, runID string) (*RemindsResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRemindsByTimeRange", ctx, start, end)
+	ret := m.ctrl.Call(m, "GetRemindsByTimeRange", ctx, start, end, runID)
 	ret0, _ := ret[0].(*RemindsResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetRemindsByTimeRange indicates an expected call of GetRemindsByTimeRange.
-func (mr *MockRemindTimeRepositoryMockRecorder) GetRemindsByTimeRange(ctx, start, end any) *gomock.Call {
+func (mr *MockRemindTimeRepositoryMockRecorder) GetRemindsByTimeRange(ctx, start, end, runID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRemindsByTimeRange", reflect.TypeOf((*MockRemindTimeRepository)(nil).GetRemindsByTimeRange), ctx, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRemindsByTimeRange", reflect.TypeOf((*MockRemindTimeRepository)(nil).GetRemindsByTimeRange), ctx, start, end, runID)
 }
 
 // UpdateThrottled mocks base method.

@@ -105,7 +105,7 @@ func TestProcessReminds_Success(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -139,7 +139,7 @@ func TestProcessReminds_Success(t *testing.T) {
 	start := now
 	end := now.Add(2 * time.Hour)
 
-	resp, err := svc.ProcessReminds(ctx, start, end)
+	resp, err := svc.ProcessReminds(ctx, start, end, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,14 +164,14 @@ func TestProcessReminds_GetRemindsByTimeRangeError(t *testing.T) {
 	expectedErr := errors.New("connection error")
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, expectedErr)
 
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 	now := time.Now()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -204,7 +204,7 @@ func TestProcessReminds_RegisterNotificationError(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -218,7 +218,7 @@ func TestProcessReminds_RegisterNotificationError(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -254,7 +254,7 @@ func TestProcessReminds_UpdateThrottledError(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -273,7 +273,7 @@ func TestProcessReminds_UpdateThrottledError(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -293,7 +293,7 @@ func TestProcessReminds_EmptyReminds(t *testing.T) {
 	mockTaskQueue := taskqueue.NewMockTaskQueue(ctrl)
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{},
 			Count:   0,
@@ -303,7 +303,7 @@ func TestProcessReminds_EmptyReminds(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestProcessReminds_NoFCMTokens(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -345,7 +345,7 @@ func TestProcessReminds_NoFCMTokens(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestProcessReminds_NilTaskQueue(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -391,7 +391,7 @@ func TestProcessReminds_NilTaskQueue(t *testing.T) {
 	svc := createTestService(mockRemindRepo, nil, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   2,
@@ -451,7 +451,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   4,
@@ -530,7 +530,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(5*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(5*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
 	}
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: []timemgmt.RemindResponse{remind},
 			Count:   1,
@@ -589,7 +589,7 @@ func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	ctx := context.Background()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -608,8 +608,8 @@ func TestProcessReminds_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	mockRemindRepo.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, start, end time.Time) (*timemgmt.RemindsResponse, error) {
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, start, end time.Time, runID string) (*timemgmt.RemindsResponse, error) {
 			cancel()
 			return nil, ctx.Err()
 		})
@@ -617,7 +617,7 @@ func TestProcessReminds_ContextCancellation(t *testing.T) {
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
 	now := time.Now()
 
-	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour))
+	resp, err := svc.ProcessReminds(ctx, now, now.Add(1*time.Hour), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
