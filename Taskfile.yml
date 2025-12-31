@@ -1,0 +1,83 @@
+# https://taskfile.dev
+
+version: "3"
+
+tasks:
+    up:
+        desc: Start loadtest environment
+        cmds:
+            - docker compose -f compose.loadtest.yaml up -d
+
+    up:build:
+        desc: Build and start loadtest environment
+        cmds:
+            - docker compose -f compose.loadtest.yaml up -d --build
+
+    down:
+        desc: Stop loadtest environment
+        cmds:
+            - docker compose -f compose.loadtest.yaml down
+
+    down:clean:
+        desc: Stop loadtest environment and remove volumes
+        cmds:
+            - docker compose -f compose.loadtest.yaml down -v
+
+    run:
+        desc: Run k6 load test
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm k6
+
+    scenario:warmup:
+        desc: Run warmup scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=warmup k6
+
+    scenario:loose-burst:
+        desc: Run loose burst scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=loose_burst k6
+
+    scenario:strict-with-loose:
+        desc: Run strict with loose scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=strict_with_loose k6
+
+    scenario:strict-isolated:
+        desc: Run strict isolated scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=strict_isolated k6
+
+    scenario:both-spike:
+        desc: Run both spike scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=both_spike k6
+
+    scenario:random:
+        desc: Run random scenario
+        cmds:
+            - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=random k6
+
+    scenarios:all:
+        desc: Run all scenarios
+        cmds:
+            - task: scenario:warmup
+            - task: scenario:loose-burst
+            - task: scenario:strict-with-loose
+            - task: scenario:strict-isolated
+            - task: scenario:both-spike
+
+    logs:
+        desc: Show logs from loadtest services
+        cmds:
+            - docker compose -f compose.loadtest.yaml logs -f
+
+    logs:throttle:
+        desc: Show logs from throttle-server only
+        cmds:
+            - docker compose -f compose.loadtest.yaml logs -f throttle-server
+
+    ps:
+        desc: Show ps output of loadtest services
+        cmds:
+            - docker compose -f compose.loadtest.yaml ps

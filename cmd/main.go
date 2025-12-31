@@ -17,6 +17,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/repository"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/throttlerecorder"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/logging"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
@@ -61,8 +62,8 @@ func run() int {
 	}
 
 	// Validate configuration
-	if cfg.RemindTimeManagementURL == "" {
-		slog.Error("REMIND_TIME_MANAGEMENT_URL environment variable is required")
+	if err := config.ValidateForRun(cfg); err != nil {
+		slog.Error("configuration validation error", slog.String("error", err.Error()))
 		return 1
 	}
 
@@ -76,6 +77,25 @@ func run() int {
 		slog.Error("failed to initialize HTTP metrics", slog.String("error", err.Error()))
 		return 1
 	}
+
+	throttleMetrics, err := metrics.NewThrottleMetrics()
+	if err != nil {
+		slog.Error("failed to initialize throttle metrics", slog.String("error", err.Error()))
+		return 1
+	}
+
+	// Initialize throttle result recorder (InfluxDB for local, BigQuery for gcloud)
+	resultRecorderCfg := throttlerecorder.LoadConfig()
+	resultRecorder, err := throttlerecorder.NewRecorder(ctx, resultRecorderCfg)
+	if err != nil {
+		slog.Error("failed to initialize throttle result recorder", slog.String("error", err.Error()))
+		return 1
+	}
+	defer func() {
+		if err := resultRecorder.Close(); err != nil {
+			slog.Warn("failed to close throttle result recorder", slog.String("error", err.Error()))
+		}
+	}()
 
 	// Initialize dependencies
 	remindTimeClient := timemgmt.NewClient(cfg.RemindTimeManagementURL)
@@ -138,7 +158,7 @@ func run() int {
 
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute, throttleMetrics)
 
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
 
@@ -148,6 +168,7 @@ func run() int {
 		throttleRepo,
 		laneClassifier,
 		slotCalculator,
+		throttleMetrics,
 	)
 	planService := plan.NewService(
 		remindTimeClient,
@@ -155,8 +176,9 @@ func run() int {
 		laneClassifier,
 		slotCalculator,
 		smoothingStrategy,
+		throttleMetrics,
 	)
-	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg)
+	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg, throttleMetrics, resultRecorder)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
 
 	// Setup router with observability middleware
@@ -179,10 +201,16 @@ func run() int {
 	}))
 	r.Use(middleware.PanicRecoveryGin())
 
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	})
+
 	// API routes
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/throttle", throttleHandler.HandleThrottle)
+		v1.POST("/throttle/batch", throttleHandler.HandleThrottleBatch)
 		v1.POST("/remind/cancel", remindCancelHandler.HandleRemindCancel)
 	}
 
@@ -197,7 +225,6 @@ func run() int {
 	go func() {
 		slog.Info("starting server",
 			slog.String("port", cfg.Port),
-			slog.String("remind_time_management_url", cfg.RemindTimeManagementURL),
 			slog.Int("confirm_window_minutes", cfg.Throttle.ConfirmWindowMinutes),
 			slog.Int("request_cap_per_minute", cfg.Throttle.RequestCapPerMinute),
 			slog.Int("planning_window_minutes", cfg.Throttle.PlanningWindowMinutes),

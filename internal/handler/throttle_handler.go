@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -9,35 +10,81 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 	commonv1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/common/v1"
 	throttlev1 "github.com/KasumiMercury/primind-notification-throttling/internal/gen/throttle/v1"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/tracing"
 	pjson "github.com/KasumiMercury/primind-notification-throttling/internal/proto"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
 )
 
 type ThrottleHandler struct {
-	throttleService *throttle.Service
-	planService     *plan.Service
-	config          *config.Config
+	throttleService  *throttle.Service
+	planService      *plan.Service
+	config           *config.Config
+	throttleMetrics  *metrics.ThrottleMetrics
+	resultRecorder   domain.ThrottleResultRecorder
 }
 
 func NewThrottleHandler(
 	throttleService *throttle.Service,
 	planService *plan.Service,
 	cfg *config.Config,
+	throttleMetrics *metrics.ThrottleMetrics,
+	resultRecorder domain.ThrottleResultRecorder,
 ) *ThrottleHandler {
 	return &ThrottleHandler{
-		throttleService: throttleService,
-		planService:     planService,
-		config:          cfg,
+		throttleService:  throttleService,
+		planService:      planService,
+		config:           cfg,
+		throttleMetrics:  throttleMetrics,
+		resultRecorder:   resultRecorder,
 	}
+}
+
+func (h *ThrottleHandler) HandleThrottleBatch(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var now time.Time
+	if fromStr := c.Query("from"); fromStr != "" {
+		parsed, err := time.Parse(time.RFC3339, fromStr)
+		if err != nil {
+			respondProtoError(c, http.StatusBadRequest, "invalid from time format, expected RFC3339")
+			return
+		}
+		now = parsed.Truncate(time.Minute)
+		slog.InfoContext(ctx, "using virtual time",
+			slog.Time("virtual_now", now),
+		)
+	} else {
+		now = time.Now().Truncate(time.Minute)
+	}
+
+	var commitEndOverride *time.Time
+	if toStr := c.Query("to"); toStr != "" {
+		parsed, err := time.Parse(time.RFC3339, toStr)
+		if err != nil {
+			respondProtoError(c, http.StatusBadRequest, "invalid to time format, expected RFC3339")
+			return
+		}
+		t := parsed.Truncate(time.Minute)
+		commitEndOverride = &t
+	}
+
+	h.processThrottle(c, ctx, now, commitEndOverride)
 }
 
 func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	now := time.Now().Truncate(time.Minute)
+	h.processThrottle(c, ctx, now, nil)
+}
+
+func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, commitEndOverride *time.Time) {
+	runID := c.GetHeader("X-Run-ID")
 
 	if h.planService != nil {
 		planStart := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
@@ -48,19 +95,40 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 			slog.Time("plan_end", planEnd),
 		)
 
-		planResult, err := h.planService.PlanReminds(ctx, planStart, planEnd)
+		planCtx, planSpan := tracing.StartPlanningPhaseSpan(ctx, planStart, planEnd)
+		planStartTime := time.Now()
+
+		planResult, err := h.planService.PlanReminds(planCtx, planStart, planEnd, runID)
+
+		planDuration := time.Since(planStartTime)
+		if h.throttleMetrics != nil {
+			h.throttleMetrics.RecordPlanningPhaseDuration(planCtx, planDuration)
+		}
+
 		if err != nil {
+			tracing.RecordPlanningPhaseResult(planSpan, 0, 0, 0, err)
 			slog.WarnContext(ctx, "planning phase failed, continuing to commit phase",
 				slog.String("error", err.Error()),
 			)
 			// Continue to commit phase even if planning fails
 		} else {
+			tracing.RecordPlanningPhaseResult(planSpan, planResult.PlannedCount, planResult.SkippedCount, planResult.ShiftedCount, nil)
 			slog.InfoContext(ctx, "planning phase completed",
 				slog.Int("planned_count", planResult.PlannedCount),
 				slog.Int("skipped_count", planResult.SkippedCount),
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
+
+			if h.resultRecorder != nil && len(planResult.Results) > 0 {
+				records := h.buildPlanningResultRecords(runID, planResult)
+				if err := h.resultRecorder.RecordBatchResults(planCtx, records); err != nil {
+					slog.WarnContext(ctx, "failed to record planning phase results",
+						slog.String("error", err.Error()),
+					)
+				}
+			}
 		}
+		planSpan.End()
 	}
 
 	commitStart := now
@@ -71,14 +139,28 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 		slog.Time("commit_end", commitEnd),
 	)
 
-	result, err := h.throttleService.ProcessReminds(ctx, commitStart, commitEnd)
+	commitCtx, commitSpan := tracing.StartCommitPhaseSpan(ctx, commitStart, commitEnd)
+	commitStartTime := time.Now()
+
+	result, err := h.throttleService.ProcessReminds(commitCtx, commitStart, commitEnd, runID)
+
+	commitDuration := time.Since(commitStartTime)
+	if h.throttleMetrics != nil {
+		h.throttleMetrics.RecordCommitPhaseDuration(commitCtx, commitDuration)
+	}
+
 	if err != nil {
+		tracing.RecordCommitPhaseResult(commitSpan, 0, 0, 0, 0, 0, err)
+		commitSpan.End()
 		slog.ErrorContext(ctx, "commit phase failed",
 			slog.String("error", err.Error()),
 		)
 		respondProtoError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	tracing.RecordCommitPhaseResult(commitSpan, result.ProcessedCount, result.SuccessCount, result.FailedCount, result.SkippedCount, result.ShiftedCount, nil)
+	commitSpan.End()
 
 	slog.InfoContext(ctx, "commit phase completed",
 		slog.Int("processed", result.ProcessedCount),
@@ -87,6 +169,15 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 		slog.Int("skipped", result.SkippedCount),
 		slog.Int("shifted", result.ShiftedCount),
 	)
+
+	if h.resultRecorder != nil && len(result.Results) > 0 {
+		records := h.buildCommitResultRecords(runID, result)
+		if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
+			slog.WarnContext(ctx, "failed to record commit phase results",
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 
 	respondProtoThrottleResponse(c, http.StatusOK, result)
 }
@@ -136,4 +227,118 @@ func stringToTaskType(s string) commonv1.TaskType {
 		return commonv1.TaskType(v)
 	}
 	return commonv1.TaskType_TASK_TYPE_UNSPECIFIED
+}
+
+type minuteDistribution struct {
+	beforeCount  int
+	afterCount   int
+	shiftedCount int
+	plannedCount int
+}
+
+func (h *ThrottleHandler) buildPlanningResultRecords(runID string, result *plan.Response) []domain.ThrottleResultRecord {
+	distributions := make(map[string]map[string]*minuteDistribution)
+
+	for _, item := range result.Results {
+		if item.Skipped {
+			continue
+		}
+
+		lane := item.Lane.String()
+		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+		plannedMinuteKey := item.PlannedTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+
+		if distributions[originalMinuteKey] == nil {
+			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
+		}
+		if distributions[originalMinuteKey][lane] == nil {
+			distributions[originalMinuteKey][lane] = &minuteDistribution{}
+		}
+		distributions[originalMinuteKey][lane].beforeCount++
+
+		if distributions[plannedMinuteKey] == nil {
+			distributions[plannedMinuteKey] = make(map[string]*minuteDistribution)
+		}
+		if distributions[plannedMinuteKey][lane] == nil {
+			distributions[plannedMinuteKey][lane] = &minuteDistribution{}
+		}
+		distributions[plannedMinuteKey][lane].afterCount++
+		distributions[plannedMinuteKey][lane].plannedCount++
+
+		if item.WasShifted {
+			distributions[plannedMinuteKey][lane].shiftedCount++
+		}
+	}
+
+	var records []domain.ThrottleResultRecord
+	for minuteKey, laneMap := range distributions {
+		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
+		for lane, dist := range laneMap {
+			records = append(records, domain.ThrottleResultRecord{
+				RunID:         runID,
+				VirtualMinute: virtualMinute,
+				Lane:          lane,
+				Phase:         "planning",
+				BeforeCount:   dist.beforeCount,
+				AfterCount:    dist.afterCount,
+				ShiftedCount:  dist.shiftedCount,
+				PlannedCount:  dist.plannedCount,
+			})
+		}
+	}
+
+	return records
+}
+
+func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response) []domain.ThrottleResultRecord {
+	distributions := make(map[string]map[string]*minuteDistribution)
+
+	for _, item := range result.Results {
+		if item.Skipped {
+			continue
+		}
+
+		lane := item.Lane.String()
+		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+		scheduledMinuteKey := item.ScheduledTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+
+		if distributions[originalMinuteKey] == nil {
+			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
+		}
+		if distributions[originalMinuteKey][lane] == nil {
+			distributions[originalMinuteKey][lane] = &minuteDistribution{}
+		}
+		distributions[originalMinuteKey][lane].beforeCount++
+
+		if distributions[scheduledMinuteKey] == nil {
+			distributions[scheduledMinuteKey] = make(map[string]*minuteDistribution)
+		}
+		if distributions[scheduledMinuteKey][lane] == nil {
+			distributions[scheduledMinuteKey][lane] = &minuteDistribution{}
+		}
+		distributions[scheduledMinuteKey][lane].afterCount++
+
+		if item.WasShifted {
+			distributions[scheduledMinuteKey][lane].shiftedCount++
+		}
+	}
+
+	var records []domain.ThrottleResultRecord
+	for minuteKey, laneMap := range distributions {
+		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
+		for lane, dist := range laneMap {
+			records = append(records, domain.ThrottleResultRecord{
+				RunID:         runID,
+				VirtualMinute: virtualMinute,
+				Lane:          lane,
+				Phase:         "commit",
+				BeforeCount:   dist.beforeCount,
+				AfterCount:    dist.afterCount,
+				ShiftedCount:  dist.shiftedCount,
+				PlannedCount:  0,
+			})
+		}
+	}
+
+	return records
 }

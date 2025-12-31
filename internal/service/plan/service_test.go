@@ -21,9 +21,9 @@ func createTestService(
 ) *Service {
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
-	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy)
+	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, smoothingStrategy, nil)
 }
 
 func TestPlanRemindsSuccess(t *testing.T) {
@@ -101,7 +101,7 @@ func TestPlanRemindsSuccess(t *testing.T) {
 
 			// Setup expectations
 			mockRemindClient.EXPECT().
-				GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+				GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(&timemgmt.RemindsResponse{
 					Reminds: tt.reminds,
 					Count:   len(tt.reminds),
@@ -138,7 +138,7 @@ func TestPlanRemindsSuccess(t *testing.T) {
 			start := time.Now().Add(5 * time.Minute)
 			end := time.Now().Add(30 * time.Minute)
 
-			result, err := svc.PlanReminds(ctx, start, end)
+			result, err := svc.PlanReminds(ctx, start, end, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -166,7 +166,7 @@ func TestPlanRemindsError(t *testing.T) {
 			name: "GetRemindsByTimeRange error",
 			setupMocks: func(mockRemind *timemgmt.MockRemindTimeRepository, mockThrottle *domain.MockThrottleRepository) {
 				mockRemind.EXPECT().
-					GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+					GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("connection error"))
 			},
 			expectedError: "connection error",
@@ -189,7 +189,7 @@ func TestPlanRemindsError(t *testing.T) {
 			start := time.Now().Add(5 * time.Minute)
 			end := time.Now().Add(30 * time.Minute)
 
-			_, err := svc.PlanReminds(ctx, start, end)
+			_, err := svc.PlanReminds(ctx, start, end, "")
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -219,7 +219,7 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 	}
 
 	mockRemindClient.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
@@ -235,7 +235,7 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 	start := time.Now().Add(5 * time.Minute)
 	end := time.Now().Add(30 * time.Minute)
 
-	result, err := svc.PlanReminds(ctx, start, end)
+	result, err := svc.PlanReminds(ctx, start, end, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 	}
 
 	mockRemindClient.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
@@ -299,7 +299,7 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 	start := time.Now().Add(5 * time.Minute)
 	end := time.Now().Add(30 * time.Minute)
 
-	result, err := svc.PlanReminds(ctx, start, end)
+	result, err := svc.PlanReminds(ctx, start, end, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 	}
 
 	mockRemindClient.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
@@ -373,7 +373,7 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 	start := now.Add(5 * time.Minute)
 	end := now.Add(30 * time.Minute)
 
-	result, err := svc.PlanReminds(ctx, start, end)
+	result, err := svc.PlanReminds(ctx, start, end, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 	}
 
 	mockRemindClient.EXPECT().
-		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		GetRemindsByTimeRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&timemgmt.RemindsResponse{
 			Reminds: reminds,
 			Count:   len(reminds),
@@ -452,7 +452,7 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 	start := now.Add(5 * time.Minute)
 	end := now.Add(30 * time.Minute)
 
-	result, err := svc.PlanReminds(ctx, start, end)
+	result, err := svc.PlanReminds(ctx, start, end, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
