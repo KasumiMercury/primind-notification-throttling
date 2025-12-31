@@ -1,0 +1,106 @@
+services:
+    throttle-server:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: runner
+            args:
+                BUILD_PATH: "./cmd/"
+        command: ["/main"]
+        ports:
+            - "8080:8080"
+        environment:
+            - REDIS_ADDR=redis:6379
+            - REMIND_TIME_MANAGEMENT_URL=http://stub-server:8081
+            - REQUEST_CAP_PER_MINUTE=60
+            - CONFIRM_WINDOW_MINUTES=5
+            - PLANNING_WINDOW_MINUTES=30
+            - LOG_LEVEL=info
+            - OTEL_EXPORTER_OTLP_ENDPOINT=prometheus:9090
+            - OTEL_TRACES_EXPORTER=none
+            - OTEL_SERVICE_NAME=throttle-server-loadtest
+            - INFLUXDB_URL=http://influxdb:8086
+            - INFLUXDB_ORG=loadtest
+            - INFLUXDB_BUCKET=throttle_results
+            - INFLUXDB_TOKEN=loadtest-token
+        depends_on:
+            redis:
+                condition: service_healthy
+            stub-server:
+                condition: service_started
+            prometheus:
+                condition: service_started
+            influxdb:
+                condition: service_started
+
+    stub-server:
+        build:
+            context: .
+            dockerfile: loadtest/Dockerfile
+        ports:
+            - "8081:8081"
+        environment:
+            - LOG_LEVEL=info
+
+    redis:
+        image: redis:7-alpine
+        ports:
+            - "6379:6379"
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        volumes:
+            - redis-data:/data
+
+    prometheus:
+        image: prom/prometheus:latest
+        command:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--web.enable-otlp-receiver"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+        volumes:
+            - ./loadtest/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+            - prometheus-data:/prometheus
+        ports:
+            - "9090:9090"
+
+    influxdb:
+        image: influxdb:2.7-alpine
+        ports:
+            - "8086:8086"
+        environment:
+            - DOCKER_INFLUXDB_INIT_MODE=setup
+            - DOCKER_INFLUXDB_INIT_USERNAME=admin
+            - DOCKER_INFLUXDB_INIT_PASSWORD=loadtest-password
+            - DOCKER_INFLUXDB_INIT_ORG=loadtest
+            - DOCKER_INFLUXDB_INIT_BUCKET=throttle_results
+            - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=loadtest-token
+        volumes:
+            - influxdb-data:/var/lib/influxdb2
+
+    grafana:
+        image: grafana/grafana:latest
+        ports:
+            - "3000:3000"
+        environment:
+            - GF_SECURITY_ADMIN_PASSWORD=admin
+            - GF_AUTH_ANONYMOUS_ENABLED=true
+            - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+        volumes:
+            - grafana-data:/var/lib/grafana
+            - ./loadtest/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+            - ./loadtest/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+            - ./loadtest/grafana/dashboards:/var/lib/grafana/dashboards:ro
+        depends_on:
+            - prometheus
+            - influxdb
+
+volumes:
+    redis-data:
+    prometheus-data:
+    influxdb-data:
+    grafana-data:
