@@ -54,6 +54,24 @@ services:
         volumes:
             - redis-data:/data
 
+    k6:
+        image: grafana/k6:latest
+        volumes:
+            - ./loadtest/k6:/scripts
+        environment:
+            - THROTTLE_URL=http://throttle-server:8080
+            - STUB_URL=http://stub-server:8081
+            - CONFIRM_WINDOW_MINUTES=5
+            - SCENARIO=${SCENARIO:-warmup}
+        depends_on:
+            throttle-server:
+                condition: service_started
+            stub-server:
+                condition: service_started
+        profiles:
+            - test
+        command: run /scripts/throttle_loadtest.js
+
     prometheus:
         image: prom/prometheus:latest
         command:
