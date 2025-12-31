@@ -99,46 +99,36 @@ func NewThrottleMetrics() (*ThrottleMetrics, error) {
 }
 
 func (m *ThrottleMetrics) RecordPacketProcessed(ctx context.Context, phase, lane, outcome string) {
-	attrs := []attribute.KeyValue{
+	m.packetsProcessed.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("phase", phase),
 		attribute.String("lane", lane),
 		attribute.String("outcome", outcome),
-	}
-	attrs = appendLoadtestLabels(ctx, attrs)
-	m.packetsProcessed.Add(ctx, 1, metric.WithAttributes(attrs...))
+	))
 }
 
 func (m *ThrottleMetrics) RecordPacketShifted(ctx context.Context, phase, lane string) {
-	attrs := []attribute.KeyValue{
+	m.packetsShifted.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("phase", phase),
 		attribute.String("lane", lane),
-	}
-	attrs = appendLoadtestLabels(ctx, attrs)
-	m.packetsShifted.Add(ctx, 1, metric.WithAttributes(attrs...))
+	))
 }
 
 func (m *ThrottleMetrics) RecordSlotCalculationDuration(ctx context.Context, lane string, duration time.Duration) {
-	attrs := []attribute.KeyValue{
+	m.slotCalculationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
 		attribute.String("lane", lane),
-	}
-	attrs = appendLoadtestLabels(ctx, attrs)
-	m.slotCalculationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	))
 }
 
 func (m *ThrottleMetrics) RecordPlanningPhaseDuration(ctx context.Context, duration time.Duration) {
-	attrs := appendLoadtestLabels(ctx, nil)
-	m.planningPhaseDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	m.planningPhaseDuration.Record(ctx, duration.Seconds())
 }
 
 func (m *ThrottleMetrics) RecordCommitPhaseDuration(ctx context.Context, duration time.Duration) {
-	attrs := appendLoadtestLabels(ctx, nil)
-	m.commitPhaseDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	m.commitPhaseDuration.Record(ctx, duration.Seconds())
 }
 
 func (m *ThrottleMetrics) RecordLaneDistribution(ctx context.Context, lane string) {
-	attrs := []attribute.KeyValue{
+	m.laneDistribution.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("lane", lane),
-	}
-	attrs = appendLoadtestLabels(ctx, attrs)
-	m.laneDistribution.Add(ctx, 1, metric.WithAttributes(attrs...))
+	))
 }

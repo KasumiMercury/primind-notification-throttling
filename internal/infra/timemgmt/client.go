@@ -32,7 +32,7 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-func (c *Client) GetRemindsByTimeRange(ctx context.Context, start, end time.Time) (*RemindsResponse, error) {
+func (c *Client) GetRemindsByTimeRange(ctx context.Context, start, end time.Time, runID string) (*RemindsResponse, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse base URL: %w", err)
@@ -42,6 +42,9 @@ func (c *Client) GetRemindsByTimeRange(ctx context.Context, start, end time.Time
 	q := u.Query()
 	q.Set("start", start.Format(time.RFC3339))
 	q.Set("end", end.Format(time.RFC3339))
+	if runID != "" {
+		q.Set("run_id", runID)
+	}
 	u.RawQuery = q.Encode()
 
 	slog.Debug("fetching reminds from RemindTimeManagement",

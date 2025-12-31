@@ -40,9 +40,9 @@ func NewService(
 	}
 }
 
-func (s *Service) PlanReminds(ctx context.Context, start, end time.Time) (*Response, error) {
+func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID string) (*Response, error) {
 	// Fetch reminds in the planning window
-	remindsResp, err := s.remindTimeClient.GetRemindsByTimeRange(ctx, start, end)
+	remindsResp, err := s.remindTimeClient.GetRemindsByTimeRange(ctx, start, end, runID)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to fetch reminds for planning",
 			slog.String("error", err.Error()),
