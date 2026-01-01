@@ -8,38 +8,70 @@ import (
 var _ Strategy = (*PassthroughStrategy)(nil)
 
 // PassthroughStrategy implements smoothing.Strategy without any smoothing.
-// It distributes allocations uniformly across minutes without kernel convolution.
+// It uses the raw distribution without kernel convolution.
 type PassthroughStrategy struct{}
 
 func NewPassthroughStrategy() *PassthroughStrategy {
 	return &PassthroughStrategy{}
 }
 
-func (p *PassthroughStrategy) CalculateAllocationsWithContext(
+// CalculateTargets computes targets without smoothing.
+// The raw distribution is used directly (no kernel convolution).
+func (p *PassthroughStrategy) CalculateTargets(
 	_ context.Context,
 	start, end time.Time,
-	input AllocationInput,
-) ([]MinuteAllocation, error) {
+	input SmoothingInput,
+) ([]TargetAllocation, error) {
 	window := NewTimeWindow(start, end)
 	if window == nil {
 		return nil, nil
 	}
 
-	// Build raw distribution (strict + uniform loose) - no smoothing
-	raw := BuildRawDistribution(window, input)
+	// Build raw distribution from CountByMinute (no smoothing)
+	raw := make([]float64, window.NumMinutes)
+	for i, key := range window.MinuteKeys {
+		if count, ok := input.CountByMinute[key]; ok {
+			raw[i] = float64(count)
+		}
+	}
 
-	// Normalize to preserve total (strict + loose)
-	totalTarget := input.StrictCount + input.LooseCount
-	normalized := normalizeToSum(raw, totalTarget)
+	// Normalize to preserve total count
+	normalized := normalizeToSum(raw, input.TotalCount)
 
-	return BuildAllocations(window, normalized, input), nil
+	return buildTargetAllocations(window, normalized, input), nil
 }
 
-func (p *PassthroughStrategy) FindBestSlot(
-	originalTime time.Time,
-	_ int,
-	_ []MinuteAllocation,
-) (time.Time, bool) {
-	// Passthrough never shifts time
-	return originalTime, false
+// buildTargetAllocations builds target allocations from normalized values.
+func buildTargetAllocations(window *TimeWindow, normalizedTargets []int, input SmoothingInput) []TargetAllocation {
+	allocations := make([]TargetAllocation, window.NumMinutes)
+
+	for i := 0; i < window.NumMinutes; i++ {
+		key := window.MinuteKeys[i]
+
+		currentCount := 0
+		if count, ok := input.CurrentByMinute[key]; ok {
+			currentCount = count
+		}
+
+		target := normalizedTargets[i]
+		available := target - currentCount
+
+		// Apply capacity constraint if set
+		if input.CapPerMinute > 0 && currentCount+available > input.CapPerMinute {
+			available = input.CapPerMinute - currentCount
+		}
+		if available < 0 {
+			available = 0
+		}
+
+		allocations[i] = TargetAllocation{
+			MinuteKey:    key,
+			MinuteTime:   window.MinuteTimes[i],
+			Target:       target,
+			CurrentCount: currentCount,
+			Available:    available,
+		}
+	}
+
+	return allocations
 }

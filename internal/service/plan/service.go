@@ -9,6 +9,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/sliding"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
 )
@@ -20,6 +21,7 @@ type Service struct {
 	slotCalculator    *slot.Calculator
 	slotCounter       slot.Counter
 	smoothingStrategy smoothing.Strategy
+	slideDiscovery    sliding.Discovery
 	throttleMetrics   *metrics.ThrottleMetrics
 	capPerMinute      int
 }
@@ -31,6 +33,7 @@ func NewService(
 	slotCalculator *slot.Calculator,
 	slotCounter slot.Counter,
 	smoothingStrategy smoothing.Strategy,
+	slideDiscovery sliding.Discovery,
 	throttleMetrics *metrics.ThrottleMetrics,
 	capPerMinute int,
 ) *Service {
@@ -41,6 +44,7 @@ func NewService(
 		slotCalculator:    slotCalculator,
 		slotCounter:       slotCounter,
 		smoothingStrategy: smoothingStrategy,
+		slideDiscovery:    slideDiscovery,
 		throttleMetrics:   throttleMetrics,
 		capPerMinute:      capPerMinute,
 	}
@@ -71,20 +75,125 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		slog.Int("unthrottled_count", len(unthrottledReminds)),
 	)
 
-	// Separate Strict and Loose reminds
+	// Filter already committed/planned and collect active reminds
+	activeReminds, skippedResults, skippedCount := s.filterAlreadyProcessed(ctx, unthrottledReminds)
+
+	// Organize by minute
+	countByMinute := s.organizeByMinute(activeReminds)
+	currentByMinute := s.getCurrentCountsByMinute(ctx, start, end)
+
+	// Calculate smoothing targets
+	smoothingInput := smoothing.SmoothingInput{
+		TotalCount:      len(activeReminds),
+		CountByMinute:   countByMinute,
+		CurrentByMinute: currentByMinute,
+		CapPerMinute:    s.capPerMinute,
+	}
+
+	var targets []smoothing.TargetAllocation
+	if s.smoothingStrategy != nil {
+		targets, err = s.smoothingStrategy.CalculateTargets(ctx, start, end, smoothingInput)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to calculate smoothing targets, using passthrough",
+				slog.String("error", err.Error()),
+			)
+			targets = s.buildPassthroughTargets(start, end, countByMinute, currentByMinute)
+		}
+	} else {
+		targets = s.buildPassthroughTargets(start, end, countByMinute, currentByMinute)
+	}
+
+	// Classify into strict/loose lanes
 	var strictReminds, looseReminds []timemgmt.RemindResponse
-	skippedResults := make([]ResultItem, 0)
-	skippedCount := 0
-
-	for _, remind := range unthrottledReminds {
+	for _, remind := range activeReminds {
 		classifiedLane := s.laneClassifier.Classify(remind)
-
-		// Record lane distribution for planning phase
 		if s.throttleMetrics != nil {
 			s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
 		}
+		if classifiedLane.IsStrict() {
+			strictReminds = append(strictReminds, remind)
+		} else {
+			looseReminds = append(looseReminds, remind)
+		}
+	}
 
-		// Check if already committed or planned
+	slog.DebugContext(ctx, "classified reminds by lane",
+		slog.Int("strict_count", len(strictReminds)),
+		slog.Int("loose_count", len(looseReminds)),
+		slog.Int("skipped_count", skippedCount),
+	)
+
+	// Create slide context with targets
+	slideCtx := &sliding.SlideContext{
+		Targets:      targets,
+		CapPerMinute: s.capPerMinute,
+	}
+
+	results := make([]ResultItem, 0, len(activeReminds))
+	results = append(results, skippedResults...)
+	plannedCount := 0
+	shiftedCount := 0
+
+	// Track plans by minute key
+	plansByMinute := make(map[string]*domain.Plan)
+
+	// Process loose lane
+	for _, remind := range looseReminds {
+		result := s.processRemind(ctx, remind, domain.LaneLoose, slideCtx, plansByMinute)
+		if result.WasShifted {
+			shiftedCount++
+		}
+		plannedCount++
+		results = append(results, result)
+	}
+
+	// Process strict lane
+	for _, remind := range strictReminds {
+		result := s.processRemind(ctx, remind, domain.LaneStrict, slideCtx, plansByMinute)
+		if result.WasShifted {
+			shiftedCount++
+		}
+		plannedCount++
+		results = append(results, result)
+	}
+
+	// Save plans to Redis
+	if s.throttleRepo != nil {
+		for _, plan := range plansByMinute {
+			if err := s.throttleRepo.SavePlan(ctx, plan); err != nil {
+				slog.WarnContext(ctx, "failed to save plan",
+					slog.String("minute_key", plan.MinuteKey),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+	}
+
+	slog.InfoContext(ctx, "planning phase completed",
+		slog.Int("planned_count", plannedCount),
+		slog.Int("skipped_count", skippedCount),
+		slog.Int("shifted_count", shiftedCount),
+	)
+
+	return &Response{
+		PlannedCount: plannedCount,
+		SkippedCount: skippedCount,
+		ShiftedCount: shiftedCount,
+		Results:      results,
+	}, nil
+}
+
+// filterAlreadyProcessed filters out reminds that are already committed or planned.
+func (s *Service) filterAlreadyProcessed(
+	ctx context.Context,
+	reminds []timemgmt.RemindResponse,
+) (active []timemgmt.RemindResponse, skipped []ResultItem, skippedCount int) {
+	skipped = make([]ResultItem, 0)
+	active = make([]timemgmt.RemindResponse, 0, len(reminds))
+
+	for _, remind := range reminds {
+		classifiedLane := s.laneClassifier.Classify(remind)
+
 		if s.throttleRepo != nil {
 			committed, err := s.throttleRepo.IsPacketCommitted(ctx, remind.ID)
 			if err != nil {
@@ -96,7 +205,7 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 				slog.DebugContext(ctx, "skipping already committed remind in planning",
 					slog.String("remind_id", remind.ID),
 				)
-				skippedResults = append(skippedResults, ResultItem{
+				skipped = append(skipped, ResultItem{
 					RemindID:     remind.ID,
 					TaskID:       remind.TaskID,
 					TaskType:     remind.TaskType,
@@ -118,7 +227,7 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 				slog.DebugContext(ctx, "skipping already planned remind",
 					slog.String("remind_id", remind.ID),
 				)
-				skippedResults = append(skippedResults, ResultItem{
+				skipped = append(skipped, ResultItem{
 					RemindID:     remind.ID,
 					TaskID:       remind.TaskID,
 					TaskType:     remind.TaskType,
@@ -136,223 +245,161 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 			}
 		}
 
-		// Classify into Strict or Loose
-		if classifiedLane.IsStrict() {
-			strictReminds = append(strictReminds, remind)
-		} else {
-			looseReminds = append(looseReminds, remind)
+		active = append(active, remind)
+	}
+
+	return active, skipped, skippedCount
+}
+
+// organizeByMinute organizes reminds by minute key.
+func (s *Service) organizeByMinute(reminds []timemgmt.RemindResponse) map[string]int {
+	countByMinute := make(map[string]int)
+	for _, remind := range reminds {
+		key := domain.MinuteKey(remind.Time)
+		countByMinute[key]++
+	}
+	return countByMinute
+}
+
+// getCurrentCountsByMinute gets current counts (committed + planned) for each minute.
+func (s *Service) getCurrentCountsByMinute(ctx context.Context, start, end time.Time) map[string]int {
+	currentByMinute := make(map[string]int)
+	if s.slotCounter == nil {
+		return currentByMinute
+	}
+
+	for minute := start.UTC().Truncate(time.Minute); minute.Before(end); minute = minute.Add(time.Minute) {
+		key := domain.MinuteKey(minute)
+		count, err := s.slotCounter.GetTotalCountForMinute(ctx, key)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get current count for minute",
+				slog.String("minute_key", key),
+				slog.String("error", err.Error()),
+			)
+		}
+		currentByMinute[key] = count
+	}
+
+	return currentByMinute
+}
+
+// buildPassthroughTargets builds targets without smoothing (passthrough).
+func (s *Service) buildPassthroughTargets(
+	start, end time.Time,
+	countByMinute, currentByMinute map[string]int,
+) []smoothing.TargetAllocation {
+	window := smoothing.NewTimeWindow(start, end)
+	if window == nil {
+		return nil
+	}
+
+	allocations := make([]smoothing.TargetAllocation, window.NumMinutes)
+	for i := 0; i < window.NumMinutes; i++ {
+		key := window.MinuteKeys[i]
+
+		target := 0
+		if count, ok := countByMinute[key]; ok {
+			target = count
+		}
+
+		currentCount := 0
+		if count, ok := currentByMinute[key]; ok {
+			currentCount = count
+		}
+
+		available := target - currentCount
+		if s.capPerMinute > 0 && currentCount+available > s.capPerMinute {
+			available = s.capPerMinute - currentCount
+		}
+		if available < 0 {
+			available = 0
+		}
+
+		allocations[i] = smoothing.TargetAllocation{
+			MinuteKey:    key,
+			MinuteTime:   window.MinuteTimes[i],
+			Target:       target,
+			CurrentCount: currentCount,
+			Available:    available,
 		}
 	}
 
-	slog.DebugContext(ctx, "classified reminds by lane",
-		slog.Int("strict_count", len(strictReminds)),
-		slog.Int("loose_count", len(looseReminds)),
-		slog.Int("skipped_count", skippedCount),
-	)
+	return allocations
+}
 
-	results := make([]ResultItem, 0, len(strictReminds)+len(looseReminds))
-	results = append(results, skippedResults...)
-	plannedCount := 0
-	shiftedCount := 0
+// processRemind processes a single remind and adds it to the plan.
+func (s *Service) processRemind(
+	ctx context.Context,
+	remind timemgmt.RemindResponse,
+	classifiedLane domain.Lane,
+	slideCtx *sliding.SlideContext,
+	plansByMinute map[string]*domain.Plan,
+) ResultItem {
+	result := ResultItem{
+		RemindID:     remind.ID,
+		TaskID:       remind.TaskID,
+		TaskType:     remind.TaskType,
+		Lane:         classifiedLane,
+		OriginalTime: remind.Time,
+		PlannedTime:  remind.Time,
+	}
 
-	// Track plans by minute key
-	plansByMinute := make(map[string]*domain.Plan)
+	var slideResult sliding.SlideResult
 
-	// Process Strict lane
-	for _, remind := range strictReminds {
-		classifiedLane := domain.LaneStrict
-		result := ResultItem{
-			RemindID:     remind.ID,
-			TaskID:       remind.TaskID,
-			TaskType:     remind.TaskType,
-			Lane:         classifiedLane,
-			OriginalTime: remind.Time,
-			PlannedTime:  remind.Time,
+	if s.slideDiscovery != nil {
+		if classifiedLane.IsStrict() {
+			slideResult = s.slideDiscovery.FindSlotForStrict(ctx, remind, slideCtx)
+		} else {
+			slideResult = s.slideDiscovery.FindSlotForLoose(ctx, remind, slideCtx)
 		}
-
+		s.slideDiscovery.UpdateContext(slideCtx, domain.MinuteKey(slideResult.PlannedTime))
+	} else {
+		// Fall back to existing SlotCalculator
 		plannedTime, wasShifted := s.slotCalculator.FindSlot(
 			ctx,
 			remind.Time,
 			int(remind.SlideWindowWidth),
 			classifiedLane,
 		)
-		result.PlannedTime = plannedTime
-		result.WasShifted = wasShifted
-
-		if wasShifted {
-			shiftedCount++
-			if s.throttleMetrics != nil {
-				s.throttleMetrics.RecordPacketShifted(ctx, "plan", classifiedLane.String())
-			}
-			slog.DebugContext(ctx, "strict remind shifted",
-				slog.String("remind_id", remind.ID),
-				slog.Time("original_time", remind.Time),
-				slog.Time("planned_time", plannedTime),
-				slog.Duration("shift", plannedTime.Sub(remind.Time)),
-			)
+		slideResult = sliding.SlideResult{
+			PlannedTime: plannedTime,
+			WasShifted:  wasShifted,
 		}
+	}
 
-		minuteKey := domain.MinuteKey(plannedTime)
-		if _, ok := plansByMinute[minuteKey]; !ok {
-			plansByMinute[minuteKey] = domain.NewPlan(minuteKey)
-		}
-		plansByMinute[minuteKey].AddPacket(domain.NewPlannedPacket(
-			remind.ID,
-			remind.Time,
-			plannedTime,
-			classifiedLane,
-		))
+	result.PlannedTime = slideResult.PlannedTime
+	result.WasShifted = slideResult.WasShifted
 
-		if s.throttleRepo != nil {
-			if err := s.throttleRepo.SavePlan(ctx, plansByMinute[minuteKey]); err != nil {
-				slog.WarnContext(ctx, "failed to save plan during planning",
-					slog.String("minute_key", minuteKey),
-					slog.String("error", err.Error()),
-				)
-			}
-		}
-
-		plannedCount++
+	if slideResult.WasShifted {
 		if s.throttleMetrics != nil {
-			s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "success")
+			s.throttleMetrics.RecordPacketShifted(ctx, "plan", classifiedLane.String())
 		}
-		results = append(results, result)
+		slog.DebugContext(ctx, "remind shifted",
+			slog.String("remind_id", remind.ID),
+			slog.String("lane", classifiedLane.String()),
+			slog.Time("original_time", remind.Time),
+			slog.Time("planned_time", slideResult.PlannedTime),
+			slog.Duration("shift", slideResult.PlannedTime.Sub(remind.Time)),
+		)
 	}
 
-	// Process Loose lane
-	if len(looseReminds) > 0 && s.smoothingStrategy != nil {
-		// Build strictByMinute map from processed strict reminds
-		strictByMinute := make(map[string]int)
-		for _, result := range results {
-			if result.Lane.IsStrict() && !result.Skipped {
-				minuteKey := domain.MinuteKey(result.PlannedTime)
-				strictByMinute[minuteKey]++
-			}
-		}
+	// Add to plan
+	minuteKey := domain.MinuteKey(slideResult.PlannedTime)
+	if _, ok := plansByMinute[minuteKey]; !ok {
+		plansByMinute[minuteKey] = domain.NewPlan(minuteKey)
+	}
+	plansByMinute[minuteKey].AddPacket(domain.NewPlannedPacket(
+		remind.ID,
+		remind.Time,
+		slideResult.PlannedTime,
+		classifiedLane,
+	))
 
-		// Build currentByMinute map for each minute in the window
-		currentByMinute := make(map[string]int)
-		if s.slotCounter != nil {
-			for minute := start.UTC().Truncate(time.Minute); minute.Before(end); minute = minute.Add(time.Minute) {
-				key := domain.MinuteKey(minute)
-				count, err := s.slotCounter.GetTotalCountForMinute(ctx, key)
-				if err != nil {
-					slog.WarnContext(ctx, "failed to get current count for minute",
-						slog.String("minute_key", key),
-						slog.String("error", err.Error()),
-					)
-				}
-				currentByMinute[key] = count
-			}
-		}
-
-		// Build AllocationInput
-		allocationInput := smoothing.AllocationInput{
-			StrictCount:     len(strictReminds),
-			LooseCount:      len(looseReminds),
-			StrictByMinute:  strictByMinute,
-			CurrentByMinute: currentByMinute,
-			CapPerMinute:    s.capPerMinute,
-		}
-
-		// Calculate allocations using the smoothing strategy with context
-		allocations, err := s.smoothingStrategy.CalculateAllocationsWithContext(ctx, start, end, allocationInput)
-		if err != nil {
-			slog.WarnContext(ctx, "failed to calculate smoothing allocations, falling back to default",
-				slog.String("error", err.Error()),
-			)
-			// Fall back to existing behavior
-			allocations = nil
-		}
-
-		for _, remind := range looseReminds {
-			classifiedLane := domain.LaneLoose
-			result := ResultItem{
-				RemindID:     remind.ID,
-				TaskID:       remind.TaskID,
-				TaskType:     remind.TaskType,
-				Lane:         classifiedLane,
-				OriginalTime: remind.Time,
-				PlannedTime:  remind.Time,
-			}
-
-			var plannedTime time.Time
-			var wasShifted bool
-
-			if allocations != nil {
-				plannedTime, wasShifted = s.smoothingStrategy.FindBestSlot(
-					remind.Time,
-					int(remind.SlideWindowWidth),
-					allocations,
-				)
-				smoothing.UpdateAllocation(allocations, domain.MinuteKey(plannedTime))
-			} else {
-				// Fall back to existing SlotCalculator
-				plannedTime, wasShifted = s.slotCalculator.FindSlot(
-					ctx,
-					remind.Time,
-					int(remind.SlideWindowWidth),
-					classifiedLane,
-				)
-			}
-
-			result.PlannedTime = plannedTime
-			result.WasShifted = wasShifted
-
-			if wasShifted {
-				shiftedCount++
-				if s.throttleMetrics != nil {
-					s.throttleMetrics.RecordPacketShifted(ctx, "plan", classifiedLane.String())
-				}
-				slog.DebugContext(ctx, "loose remind shifted (smoothing)",
-					slog.String("remind_id", remind.ID),
-					slog.Time("original_time", remind.Time),
-					slog.Time("planned_time", plannedTime),
-					slog.Duration("shift", plannedTime.Sub(remind.Time)),
-				)
-			}
-
-			// Save to plan
-			minuteKey := domain.MinuteKey(plannedTime)
-			if _, ok := plansByMinute[minuteKey]; !ok {
-				plansByMinute[minuteKey] = domain.NewPlan(minuteKey)
-			}
-			plansByMinute[minuteKey].AddPacket(domain.NewPlannedPacket(
-				remind.ID,
-				remind.Time,
-				plannedTime,
-				classifiedLane,
-			))
-
-			if s.throttleRepo != nil {
-				if err := s.throttleRepo.SavePlan(ctx, plansByMinute[minuteKey]); err != nil {
-					slog.WarnContext(ctx, "failed to save plan during planning",
-						slog.String("minute_key", minuteKey),
-						slog.String("error", err.Error()),
-					)
-				}
-			}
-
-			plannedCount++
-			if s.throttleMetrics != nil {
-				s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "success")
-			}
-			results = append(results, result)
-		}
+	if s.throttleMetrics != nil {
+		s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "success")
 	}
 
-	slog.InfoContext(ctx, "planning phase completed",
-		slog.Int("planned_count", plannedCount),
-		slog.Int("skipped_count", skippedCount),
-		slog.Int("shifted_count", shiftedCount),
-	)
-
-	return &Response{
-		PlannedCount: plannedCount,
-		SkippedCount: skippedCount,
-		ShiftedCount: shiftedCount,
-		Results:      results,
-	}, nil
+	return result
 }
 
 func filterUnthrottled(reminds []timemgmt.RemindResponse) []timemgmt.RemindResponse {

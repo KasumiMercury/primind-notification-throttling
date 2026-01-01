@@ -15,6 +15,7 @@ type Config struct {
 	Redis                   *RedisConfig
 	Throttle                *ThrottleConfig
 	Smoothing               *SmoothingConfig
+	Sliding                 *SlidingConfig
 }
 
 type TaskQueueConfig struct {
@@ -70,6 +71,7 @@ func Load() (*Config, error) {
 		Redis:     redisConfig,
 		Throttle:  LoadThrottleConfig(),
 		Smoothing: LoadSmoothingConfig(),
+		Sliding:   LoadSlidingConfig(),
 	}, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/sliding"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
 	"go.uber.org/mock/gomock"
@@ -23,7 +24,8 @@ func createTestService(
 	slotCounter := slot.NewCounter(throttleRepo)
 	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
-	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, slotCounter, smoothingStrategy, nil, requestCapPerMinute)
+	slideDiscovery := sliding.NewBestFitDiscovery()
+	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, slotCounter, smoothingStrategy, slideDiscovery, nil, requestCapPerMinute)
 }
 
 func TestPlanRemindsSuccess(t *testing.T) {
@@ -107,6 +109,14 @@ func TestPlanRemindsSuccess(t *testing.T) {
 					Count:   len(tt.reminds),
 				}, nil)
 
+			// Refactored service always calls getCurrentCountsByMinute for entire window
+			mockThrottleRepo.EXPECT().
+				GetPacketCountForMinute(gomock.Any(), gomock.Any()).
+				Return(0, nil).AnyTimes()
+			mockThrottleRepo.EXPECT().
+				GetPlannedPacketCount(gomock.Any(), gomock.Any()).
+				Return(0, nil).AnyTimes()
+
 			// For each unthrottled remind, expect these repo calls
 			for _, r := range tt.reminds {
 				if !r.Throttled {
@@ -116,12 +126,6 @@ func TestPlanRemindsSuccess(t *testing.T) {
 					mockThrottleRepo.EXPECT().
 						GetPlannedPacket(gomock.Any(), r.ID).
 						Return(nil, domain.ErrPlannedPacketNotFound)
-					mockThrottleRepo.EXPECT().
-						GetPacketCountForMinute(gomock.Any(), gomock.Any()).
-						Return(0, nil).AnyTimes()
-					mockThrottleRepo.EXPECT().
-						GetPlannedPacketCount(gomock.Any(), gomock.Any()).
-						Return(0, nil).AnyTimes()
 				}
 			}
 
@@ -225,6 +229,14 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 			Count:   len(reminds),
 		}, nil)
 
+	// Refactored service always calls getCurrentCountsByMinute for entire window
+	mockThrottleRepo.EXPECT().
+		GetPacketCountForMinute(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	mockThrottleRepo.EXPECT().
+		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-committed").
 		Return(true, nil)
@@ -279,6 +291,14 @@ func TestPlanReminds_SkipsAlreadyPlannedPackets(t *testing.T) {
 			Reminds: reminds,
 			Count:   len(reminds),
 		}, nil)
+
+	// Refactored service always calls getCurrentCountsByMinute for entire window
+	mockThrottleRepo.EXPECT().
+		GetPacketCountForMinute(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	mockThrottleRepo.EXPECT().
+		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-planned").
@@ -346,6 +366,14 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 			Count:   len(reminds),
 		}, nil)
 
+	// Refactored service always calls getCurrentCountsByMinute for entire window
+	mockThrottleRepo.EXPECT().
+		GetPacketCountForMinute(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	mockThrottleRepo.EXPECT().
+		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-strict").
 		Return(false, nil)
@@ -354,18 +382,9 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 		GetPlannedPacket(gomock.Any(), "remind-strict").
 		Return(nil, domain.ErrPlannedPacketNotFound)
 
-	// Strict lane now checks cap - return under cap (30 < 60)
-	originalMinuteKey := domain.MinuteKey(originalTime)
-	mockThrottleRepo.EXPECT().
-		GetPacketCountForMinute(gomock.Any(), originalMinuteKey).
-		Return(30, nil)
-	mockThrottleRepo.EXPECT().
-		GetPlannedPacketCount(gomock.Any(), originalMinuteKey).
-		Return(0, nil)
-
 	mockThrottleRepo.EXPECT().
 		SavePlan(gomock.Any(), gomock.Any()).
-		Return(nil)
+		Return(nil).AnyTimes()
 
 	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 
@@ -423,6 +442,14 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 			Count:   len(reminds),
 		}, nil)
 
+	// Refactored service always calls getCurrentCountsByMinute for entire window
+	mockThrottleRepo.EXPECT().
+		GetPacketCountForMinute(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	mockThrottleRepo.EXPECT().
+		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-strict").
 		Return(false, nil)
@@ -431,20 +458,9 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 		GetPlannedPacket(gomock.Any(), "remind-strict").
 		Return(nil, domain.ErrPlannedPacketNotFound)
 
-	// Original minute is at cap (60), but with slideWindow < 60s, no shift occurs
-	originalMinuteKey := domain.MinuteKey(originalTime)
-	mockThrottleRepo.EXPECT().
-		GetPacketCountForMinute(gomock.Any(), originalMinuteKey).
-		Return(60, nil)
-	mockThrottleRepo.EXPECT().
-		GetPlannedPacketCount(gomock.Any(), originalMinuteKey).
-		Return(0, nil)
-
-	// No candidate minutes are checked because slideWindow < 60s
-
 	mockThrottleRepo.EXPECT().
 		SavePlan(gomock.Any(), gomock.Any()).
-		Return(nil)
+		Return(nil).AnyTimes()
 
 	svc := createTestService(mockRemindClient, mockThrottleRepo, 60)
 

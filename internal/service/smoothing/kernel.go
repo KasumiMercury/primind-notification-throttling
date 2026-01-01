@@ -273,7 +273,7 @@ func BuildAllocations(window *TimeWindow, normalizedTargets []int, input Allocat
 		}
 
 		target := normalizedTargets[i]
-		remaining := target
+		available := target
 
 		// Apply capacity constraint if set
 		if input.CapPerMinute > 0 {
@@ -281,8 +281,8 @@ func BuildAllocations(window *TimeWindow, normalizedTargets []int, input Allocat
 			if availableCapacity < 0 {
 				availableCapacity = 0
 			}
-			if remaining > availableCapacity {
-				remaining = availableCapacity
+			if available > availableCapacity {
+				available = availableCapacity
 			}
 		}
 
@@ -291,7 +291,7 @@ func BuildAllocations(window *TimeWindow, normalizedTargets []int, input Allocat
 			MinuteTime:   window.MinuteTimes[i],
 			Target:       target,
 			CurrentCount: currentCount,
-			Remaining:    remaining,
+			Available:    available,
 		}
 	}
 
