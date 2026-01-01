@@ -12,7 +12,7 @@ services:
         environment:
             - REDIS_ADDR=redis:6379
             - REMIND_TIME_MANAGEMENT_URL=http://stub-server:8081
-            - REQUEST_CAP_PER_MINUTE=60
+            - REQUEST_CAP_PER_MINUTE=300
             - CONFIRM_WINDOW_MINUTES=5
             - PLANNING_WINDOW_MINUTES=30
             - LOG_LEVEL=info
@@ -23,6 +23,7 @@ services:
             - INFLUXDB_ORG=loadtest
             - INFLUXDB_BUCKET=throttle_results
             - INFLUXDB_TOKEN=loadtest-token
+            - THROTTLE_RESULTS_FILL_ALL_MINUTES=true
         depends_on:
             redis:
                 condition: service_healthy
