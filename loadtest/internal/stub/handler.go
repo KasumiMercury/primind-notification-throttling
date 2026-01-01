@@ -113,7 +113,7 @@ func (h *Handler) HandleGetReminds(c *gin.Context) {
 
 	reminds := h.storage.GetRemindsInRange(runID, start, end)
 
-	slog.Debug("get reminds",
+	slog.Info("get reminds",
 		slog.String("run_id", runID),
 		slog.Time("start", start),
 		slog.Time("end", end),
