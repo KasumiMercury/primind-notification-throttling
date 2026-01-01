@@ -118,15 +118,8 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 				slog.Int("skipped_count", planResult.SkippedCount),
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
-
-			if h.resultRecorder != nil && len(planResult.Results) > 0 {
-				records := h.buildPlanningResultRecords(runID, planResult)
-				if err := h.resultRecorder.RecordBatchResults(planCtx, records); err != nil {
-					slog.WarnContext(ctx, "failed to record planning phase results",
-						slog.String("error", err.Error()),
-					)
-				}
-			}
+			// NOTE: Planning phase results are not recorded separately.
+			// All recording happens at commit phase to avoid window overlap issues.
 		}
 		planSpan.End()
 	}
@@ -170,12 +163,17 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 		slog.Int("shifted", result.ShiftedCount),
 	)
 
-	if h.resultRecorder != nil && len(result.Results) > 0 {
-		records := h.buildCommitResultRecords(runID, result)
-		if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
-			slog.WarnContext(ctx, "failed to record commit phase results",
-				slog.String("error", err.Error()),
-			)
+	if h.resultRecorder != nil {
+		fillAll := h.resultRecorder.FillAllMinutes()
+		if len(result.Results) > 0 || fillAll {
+			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll)
+			if len(records) > 0 {
+				if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
+					slog.WarnContext(ctx, "failed to record commit phase results",
+						slog.String("error", err.Error()),
+					)
+				}
+			}
 		}
 	}
 
@@ -236,62 +234,19 @@ type minuteDistribution struct {
 	plannedCount int
 }
 
-func (h *ThrottleHandler) buildPlanningResultRecords(runID string, result *plan.Response) []domain.ThrottleResultRecord {
+func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool) []domain.ThrottleResultRecord {
 	distributions := make(map[string]map[string]*minuteDistribution)
 
-	for _, item := range result.Results {
-		if item.Skipped {
-			continue
-		}
-
-		lane := item.Lane.String()
-		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-		plannedMinuteKey := item.PlannedTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-
-		if distributions[originalMinuteKey] == nil {
-			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[originalMinuteKey][lane] == nil {
-			distributions[originalMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[originalMinuteKey][lane].beforeCount++
-
-		if distributions[plannedMinuteKey] == nil {
-			distributions[plannedMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[plannedMinuteKey][lane] == nil {
-			distributions[plannedMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[plannedMinuteKey][lane].afterCount++
-		distributions[plannedMinuteKey][lane].plannedCount++
-
-		if item.WasShifted {
-			distributions[plannedMinuteKey][lane].shiftedCount++
+	// Pre-populate all minutes with empty distributions when fillAllMinutes is enabled
+	if fillAllMinutes {
+		for minute := windowStart.UTC().Truncate(time.Minute); minute.Before(windowEnd); minute = minute.Add(time.Minute) {
+			key := minute.Format(time.RFC3339)
+			distributions[key] = map[string]*minuteDistribution{
+				"strict": {},
+				"loose":  {},
+			}
 		}
 	}
-
-	var records []domain.ThrottleResultRecord
-	for minuteKey, laneMap := range distributions {
-		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
-		for lane, dist := range laneMap {
-			records = append(records, domain.ThrottleResultRecord{
-				RunID:         runID,
-				VirtualMinute: virtualMinute,
-				Lane:          lane,
-				Phase:         "planning",
-				BeforeCount:   dist.beforeCount,
-				AfterCount:    dist.afterCount,
-				ShiftedCount:  dist.shiftedCount,
-				PlannedCount:  dist.plannedCount,
-			})
-		}
-	}
-
-	return records
-}
-
-func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response) []domain.ThrottleResultRecord {
-	distributions := make(map[string]map[string]*minuteDistribution)
 
 	for _, item := range result.Results {
 		if item.Skipped {
@@ -321,6 +276,11 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 		if item.WasShifted {
 			distributions[scheduledMinuteKey][lane].shiftedCount++
 		}
+
+		// Track items that used a pre-calculated plan
+		if item.WasPlanned {
+			distributions[scheduledMinuteKey][lane].plannedCount++
+		}
 	}
 
 	var records []domain.ThrottleResultRecord
@@ -335,7 +295,7 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 				BeforeCount:   dist.beforeCount,
 				AfterCount:    dist.afterCount,
 				ShiftedCount:  dist.shiftedCount,
-				PlannedCount:  0,
+				PlannedCount:  dist.plannedCount,
 			})
 		}
 	}

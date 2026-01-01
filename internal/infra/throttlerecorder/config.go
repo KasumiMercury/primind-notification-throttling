@@ -5,7 +5,8 @@ import (
 )
 
 type Config struct {
-	Disabled bool
+	Disabled       bool
+	FillAllMinutes bool
 
 	InfluxDBURL    string
 	InfluxDBToken  string
@@ -19,7 +20,8 @@ type Config struct {
 
 func LoadConfig() *Config {
 	cfg := &Config{
-		Disabled: os.Getenv("THROTTLE_RESULTS_DISABLED") == "true",
+		Disabled:       os.Getenv("THROTTLE_RESULTS_DISABLED") == "true",
+		FillAllMinutes: os.Getenv("THROTTLE_RESULTS_FILL_ALL_MINUTES") == "true",
 
 		InfluxDBURL:    getEnvOrDefault("INFLUXDB_URL", "http://localhost:8086"),
 		InfluxDBToken:  os.Getenv("INFLUXDB_TOKEN"),

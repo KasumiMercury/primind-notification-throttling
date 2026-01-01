@@ -98,6 +98,10 @@ func (r *bigQueryRecorder) RecordBatchResults(ctx context.Context, records []dom
 	return nil
 }
 
+func (r *bigQueryRecorder) FillAllMinutes() bool {
+	return false
+}
+
 func (r *bigQueryRecorder) Flush(ctx context.Context) error {
 	return nil
 }

@@ -18,6 +18,7 @@ type ThrottleResultRecord struct {
 
 type ThrottleResultRecorder interface {
 	RecordBatchResults(ctx context.Context, records []ThrottleResultRecord) error
+	FillAllMinutes() bool
 	Flush(ctx context.Context) error
 	Close() error
 }

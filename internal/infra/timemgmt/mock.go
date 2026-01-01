@@ -57,15 +57,15 @@ func (mr *MockRemindTimeRepositoryMockRecorder) GetRemindsByTimeRange(ctx, start
 }
 
 // UpdateThrottled mocks base method.
-func (m *MockRemindTimeRepository) UpdateThrottled(ctx context.Context, id string, throttled bool) error {
+func (m *MockRemindTimeRepository) UpdateThrottled(ctx context.Context, id string, throttled bool, runID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateThrottled", ctx, id, throttled)
+	ret := m.ctrl.Call(m, "UpdateThrottled", ctx, id, throttled, runID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateThrottled indicates an expected call of UpdateThrottled.
-func (mr *MockRemindTimeRepositoryMockRecorder) UpdateThrottled(ctx, id, throttled any) *gomock.Call {
+func (mr *MockRemindTimeRepositoryMockRecorder) UpdateThrottled(ctx, id, throttled, runID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateThrottled", reflect.TypeOf((*MockRemindTimeRepository)(nil).UpdateThrottled), ctx, id, throttled)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateThrottled", reflect.TypeOf((*MockRemindTimeRepository)(nil).UpdateThrottled), ctx, id, throttled, runID)
 }
