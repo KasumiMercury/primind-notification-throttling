@@ -8,7 +8,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
 
-func TestPassthroughStrategy_CalculateAllocations_ReturnsNil(t *testing.T) {
+func TestPassthroughStrategy_CalculateAllocationsWithContext_BasicTest(t *testing.T) {
 	strategy := NewPassthroughStrategy()
 
 	ctx := context.Background()
@@ -16,13 +16,77 @@ func TestPassthroughStrategy_CalculateAllocations_ReturnsNil(t *testing.T) {
 	start := now
 	end := now.Add(5 * time.Minute)
 
-	allocations, err := strategy.CalculateAllocations(ctx, start, end, 100)
+	input := AllocationInput{
+		StrictCount:     0,
+		LooseCount:      100,
+		StrictByMinute:  make(map[string]int),
+		CurrentByMinute: make(map[string]int),
+		CapPerMinute:    0,
+	}
+
+	allocations, err := strategy.CalculateAllocationsWithContext(ctx, start, end, input)
 
 	if err != nil {
-		t.Errorf("CalculateAllocations() error = %v, want nil", err)
+		t.Errorf("CalculateAllocationsWithContext() error = %v, want nil", err)
 	}
-	if allocations != nil {
-		t.Errorf("CalculateAllocations() = %v, want nil", allocations)
+	if allocations == nil {
+		t.Fatal("CalculateAllocationsWithContext() = nil, want allocations")
+	}
+	if len(allocations) != 5 {
+		t.Errorf("CalculateAllocationsWithContext() len = %d, want 5", len(allocations))
+	}
+
+	// Verify total equals totalCount (100)
+	totalTarget := 0
+	for _, alloc := range allocations {
+		totalTarget += alloc.Target
+	}
+	if totalTarget != 100 {
+		t.Errorf("Total target = %d, want 100", totalTarget)
+	}
+}
+
+func TestPassthroughStrategy_CalculateAllocationsWithContext_ReturnsAllocations(t *testing.T) {
+	strategy := NewPassthroughStrategy()
+
+	ctx := context.Background()
+	start := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	end := start.Add(5 * time.Minute)
+
+	input := AllocationInput{
+		StrictCount:     10,
+		LooseCount:      50,
+		StrictByMinute:  map[string]int{"2025-01-01-10-00": 10},
+		CurrentByMinute: map[string]int{},
+		CapPerMinute:    60,
+	}
+
+	allocations, err := strategy.CalculateAllocationsWithContext(ctx, start, end, input)
+
+	if err != nil {
+		t.Errorf("CalculateAllocationsWithContext() error = %v, want nil", err)
+	}
+	if allocations == nil {
+		t.Fatal("CalculateAllocationsWithContext() = nil, want allocations")
+	}
+	if len(allocations) != 5 {
+		t.Errorf("CalculateAllocationsWithContext() len = %d, want 5", len(allocations))
+	}
+
+	// Verify total equals strict + loose (10 + 50 = 60)
+	totalTarget := 0
+	for _, alloc := range allocations {
+		totalTarget += alloc.Target
+	}
+	expectedTotal := input.StrictCount + input.LooseCount
+	if totalTarget != expectedTotal {
+		t.Errorf("Total target = %d, want %d", totalTarget, expectedTotal)
+	}
+
+	// Verify first minute has higher target due to strict allocation
+	if allocations[0].Target <= allocations[1].Target {
+		t.Errorf("First minute target (%d) should be higher than second (%d) due to strict allocation",
+			allocations[0].Target, allocations[1].Target)
 	}
 }
 

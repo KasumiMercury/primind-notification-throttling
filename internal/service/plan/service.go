@@ -18,8 +18,10 @@ type Service struct {
 	throttleRepo      domain.ThrottleRepository
 	laneClassifier    *lane.Classifier
 	slotCalculator    *slot.Calculator
+	slotCounter       slot.Counter
 	smoothingStrategy smoothing.Strategy
 	throttleMetrics   *metrics.ThrottleMetrics
+	capPerMinute      int
 }
 
 func NewService(
@@ -27,16 +29,20 @@ func NewService(
 	throttleRepo domain.ThrottleRepository,
 	laneClassifier *lane.Classifier,
 	slotCalculator *slot.Calculator,
+	slotCounter slot.Counter,
 	smoothingStrategy smoothing.Strategy,
 	throttleMetrics *metrics.ThrottleMetrics,
+	capPerMinute int,
 ) *Service {
 	return &Service{
 		remindTimeClient:  remindTimeClient,
 		throttleRepo:      throttleRepo,
 		laneClassifier:    laneClassifier,
 		slotCalculator:    slotCalculator,
+		slotCounter:       slotCounter,
 		smoothingStrategy: smoothingStrategy,
 		throttleMetrics:   throttleMetrics,
+		capPerMinute:      capPerMinute,
 	}
 }
 
@@ -215,8 +221,42 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 
 	// Process Loose lane
 	if len(looseReminds) > 0 && s.smoothingStrategy != nil {
-		// Calculate allocations using the smoothing strategy
-		allocations, err := s.smoothingStrategy.CalculateAllocations(ctx, start, end, len(looseReminds))
+		// Build strictByMinute map from processed strict reminds
+		strictByMinute := make(map[string]int)
+		for _, result := range results {
+			if result.Lane.IsStrict() && !result.Skipped {
+				minuteKey := domain.MinuteKey(result.PlannedTime)
+				strictByMinute[minuteKey]++
+			}
+		}
+
+		// Build currentByMinute map for each minute in the window
+		currentByMinute := make(map[string]int)
+		if s.slotCounter != nil {
+			for minute := start.UTC().Truncate(time.Minute); minute.Before(end); minute = minute.Add(time.Minute) {
+				key := domain.MinuteKey(minute)
+				count, err := s.slotCounter.GetTotalCountForMinute(ctx, key)
+				if err != nil {
+					slog.WarnContext(ctx, "failed to get current count for minute",
+						slog.String("minute_key", key),
+						slog.String("error", err.Error()),
+					)
+				}
+				currentByMinute[key] = count
+			}
+		}
+
+		// Build AllocationInput
+		allocationInput := smoothing.AllocationInput{
+			StrictCount:     len(strictReminds),
+			LooseCount:      len(looseReminds),
+			StrictByMinute:  strictByMinute,
+			CurrentByMinute: currentByMinute,
+			CapPerMinute:    s.capPerMinute,
+		}
+
+		// Calculate allocations using the smoothing strategy with context
+		allocations, err := s.smoothingStrategy.CalculateAllocationsWithContext(ctx, start, end, allocationInput)
 		if err != nil {
 			slog.WarnContext(ctx, "failed to calculate smoothing allocations, falling back to default",
 				slog.String("error", err.Error()),

@@ -160,7 +160,7 @@ func run() int {
 	slotCounter := slot.NewCounter(throttleRepo)
 	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute, throttleMetrics)
 
-	smoothingStrategy := smoothing.NewPassthroughStrategy()
+	smoothingStrategy := smoothing.NewStrategy(cfg.Smoothing)
 
 	throttleService := throttle.NewService(
 		remindTimeClient,
@@ -175,8 +175,10 @@ func run() int {
 		throttleRepo,
 		laneClassifier,
 		slotCalculator,
+		slotCounter,
 		smoothingStrategy,
 		throttleMetrics,
+		cfg.Throttle.RequestCapPerMinute,
 	)
 	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg, throttleMetrics, resultRecorder)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)
