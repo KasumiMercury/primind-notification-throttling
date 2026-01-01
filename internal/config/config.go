@@ -14,6 +14,7 @@ type Config struct {
 	TaskQueue               TaskQueueConfig
 	Redis                   *RedisConfig
 	Throttle                *ThrottleConfig
+	Smoothing               *SmoothingConfig
 }
 
 type TaskQueueConfig struct {
@@ -66,8 +67,9 @@ func Load() (*Config, error) {
 
 			MaxRetries: maxRetries,
 		},
-		Redis:    redisConfig,
-		Throttle: LoadThrottleConfig(),
+		Redis:     redisConfig,
+		Throttle:  LoadThrottleConfig(),
+		Smoothing: LoadSmoothingConfig(),
 	}, nil
 }
 
