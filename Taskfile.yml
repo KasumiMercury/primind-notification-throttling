@@ -28,34 +28,46 @@ tasks:
         cmds:
             - docker compose -f compose.loadtest.yaml run --rm k6
 
+    redis:flush:
+        desc: Flush Redis database
+        cmds:
+            - docker exec primind-notification-throttling-redis-1 redis-cli FLUSHALL
+        silent: true
+
     scenario:warmup:
         desc: Run warmup scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=warmup k6
 
     scenario:loose-burst:
         desc: Run loose burst scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=loose_burst k6
 
     scenario:strict-with-loose:
         desc: Run strict with loose scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=strict_with_loose k6
 
     scenario:strict-isolated:
         desc: Run strict isolated scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=strict_isolated k6
 
     scenario:both-spike:
         desc: Run both spike scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=both_spike k6
 
     scenario:random:
         desc: Run random scenario
         cmds:
+            - task: redis:flush
             - docker compose -f compose.loadtest.yaml run --rm -e SCENARIO=random k6
 
     scenarios:all:
