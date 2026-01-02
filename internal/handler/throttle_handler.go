@@ -21,11 +21,11 @@ import (
 )
 
 type ThrottleHandler struct {
-	throttleService  *throttle.Service
-	planService      *plan.Service
-	config           *config.Config
-	throttleMetrics  *metrics.ThrottleMetrics
-	resultRecorder   domain.ThrottleResultRecorder
+	throttleService *throttle.Service
+	planService     *plan.Service
+	config          *config.Config
+	throttleMetrics *metrics.ThrottleMetrics
+	resultRecorder  domain.ThrottleResultRecorder
 }
 
 func NewThrottleHandler(
@@ -36,11 +36,11 @@ func NewThrottleHandler(
 	resultRecorder domain.ThrottleResultRecorder,
 ) *ThrottleHandler {
 	return &ThrottleHandler{
-		throttleService:  throttleService,
-		planService:      planService,
-		config:           cfg,
-		throttleMetrics:  throttleMetrics,
-		resultRecorder:   resultRecorder,
+		throttleService: throttleService,
+		planService:     planService,
+		config:          cfg,
+		throttleMetrics: throttleMetrics,
+		resultRecorder:  resultRecorder,
 	}
 }
 
@@ -87,7 +87,7 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 	runID := c.GetHeader("X-Run-ID")
 
 	if h.planService != nil {
-		planStart := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+		planStart := now
 		planEnd := now.Add(time.Duration(h.config.Throttle.PlanningWindowMinutes) * time.Minute)
 
 		slog.InfoContext(ctx, "starting planning phase",
@@ -126,6 +126,9 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 
 	commitStart := now
 	commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+	if commitEndOverride != nil {
+		commitEnd = *commitEndOverride
+	}
 
 	slog.InfoContext(ctx, "starting commit phase",
 		slog.Time("commit_start", commitStart),
