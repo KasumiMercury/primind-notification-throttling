@@ -267,6 +267,8 @@ type minuteDistribution struct {
 	shiftedCount int
 	plannedCount int
 	targetCount  int
+	skippedCount int
+	failedCount  int
 }
 
 func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool, smoothingTargets map[string]int) []domain.ThrottleResultRecord {
@@ -289,41 +291,46 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 		}
 	}
 
+	ensureDistribution := func(key, lane string) {
+		if distributions[key] == nil {
+			distributions[key] = make(map[string]*minuteDistribution)
+		}
+		if distributions[key][lane] == nil {
+			targetCount := 0
+			if smoothingTargets != nil {
+				if t, ok := smoothingTargets[key]; ok {
+					targetCount = t
+				}
+			}
+			distributions[key][lane] = &minuteDistribution{targetCount: targetCount}
+		}
+	}
+
 	for _, item := range result.Results {
+		lane := item.Lane.String()
+		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+
+		// Initialize distribution for original minute
+		ensureDistribution(originalMinuteKey, lane)
+
+		// Always count in beforeCount (original time)
+		distributions[originalMinuteKey][lane].beforeCount++
+
+		// Handle skipped items
 		if item.Skipped {
+			distributions[originalMinuteKey][lane].skippedCount++
 			continue
 		}
 
-		lane := item.Lane.String()
-		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+		// Handle failed items
+		if !item.Success {
+			distributions[originalMinuteKey][lane].failedCount++
+			continue
+		}
+
+		// Successful items: count in afterCount at scheduled time
 		scheduledMinuteKey := item.ScheduledTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-
-		if distributions[originalMinuteKey] == nil {
-			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[originalMinuteKey][lane] == nil {
-			targetCount := 0
-			if smoothingTargets != nil {
-				if t, ok := smoothingTargets[originalMinuteKey]; ok {
-					targetCount = t
-				}
-			}
-			distributions[originalMinuteKey][lane] = &minuteDistribution{targetCount: targetCount}
-		}
-		distributions[originalMinuteKey][lane].beforeCount++
-
-		if distributions[scheduledMinuteKey] == nil {
-			distributions[scheduledMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[scheduledMinuteKey][lane] == nil {
-			targetCount := 0
-			if smoothingTargets != nil {
-				if t, ok := smoothingTargets[scheduledMinuteKey]; ok {
-					targetCount = t
-				}
-			}
-			distributions[scheduledMinuteKey][lane] = &minuteDistribution{targetCount: targetCount}
-		}
+		ensureDistribution(scheduledMinuteKey, lane)
 		distributions[scheduledMinuteKey][lane].afterCount++
 
 		if item.WasShifted {
@@ -350,6 +357,8 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 				ShiftedCount:  dist.shiftedCount,
 				PlannedCount:  dist.plannedCount,
 				TargetCount:   dist.targetCount,
+				SkippedCount:  dist.skippedCount,
+				FailedCount:   dist.failedCount,
 			})
 		}
 	}

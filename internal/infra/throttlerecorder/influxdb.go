@@ -67,12 +67,8 @@ func (r *influxDBRecorder) RecordBatchResults(ctx context.Context, records []dom
 			runID = "default"
 		}
 
-		pointTime := record.VirtualMinute
-		if pointTime.IsZero() {
-			pointTime = time.Now()
-		} else {
-			pointTime = pointTime.UTC()
-		}
+		// Use real time as timestamp to prevent overwrites between iterations
+		pointTime := time.Now()
 
 		point := influxdb2.NewPoint(
 			"throttle_result",
@@ -88,6 +84,8 @@ func (r *influxDBRecorder) RecordBatchResults(ctx context.Context, records []dom
 				"shifted_count":       record.ShiftedCount,
 				"planned_count":       record.PlannedCount,
 				"target_count":        record.TargetCount,
+				"skipped_count":       record.SkippedCount,
+				"failed_count":        record.FailedCount,
 				"virtual_minute_unix": record.VirtualMinute.Unix(),
 			},
 			pointTime,

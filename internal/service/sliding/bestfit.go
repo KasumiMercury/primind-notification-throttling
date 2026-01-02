@@ -48,17 +48,6 @@ func (b *BestFitDiscovery) findSlot(
 		return SlideResult{PlannedTime: originalTime, WasShifted: false}
 	}
 
-	// Check if original slot has available capacity
-	for _, target := range slideCtx.Targets {
-		if target.MinuteKey == originalKey {
-			if target.Available > 0 && target.CurrentCount < slideCtx.CapPerMinute {
-				return SlideResult{PlannedTime: originalTime, WasShifted: false}
-			}
-			break
-		}
-	}
-
-	// Search for the slot with maximum availability within slide window
 	slideWindow := time.Duration(remind.SlideWindowWidth) * time.Second
 	if slideWindow < time.Minute {
 		// Cannot shift if slide window < 1 minute
@@ -67,6 +56,17 @@ func (b *BestFitDiscovery) findSlot(
 
 	windowStart := originalTime.Truncate(time.Minute)
 	windowEnd := originalTime.Add(slideWindow)
+
+	// Find original slot's availability
+	var originalAvailable int
+	for _, target := range slideCtx.Targets {
+		if target.MinuteKey == originalKey {
+			if target.CurrentCount < slideCtx.CapPerMinute {
+				originalAvailable = target.Available
+			}
+			break
+		}
+	}
 
 	var bestTarget *smoothing.TargetAllocation
 	var bestTime time.Time
@@ -91,22 +91,38 @@ func (b *BestFitDiscovery) findSlot(
 		}
 	}
 
-	if bestTarget != nil {
+	// Use best slot if it has MORE availability than original
+	// (This enables shifting toward smoothing targets even when original has space)
+	if bestTarget != nil && bestTarget.Available > originalAvailable {
 		offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 		plannedTime := bestTime.Add(offset)
 
-		slog.DebugContext(ctx, "bestfit: found slot with max availability",
+		shifted := bestTarget.MinuteKey != originalKey
+
+		slog.DebugContext(ctx, "bestfit: selected slot",
 			slog.String("remind_id", remind.ID),
 			slog.String("original_key", originalKey),
 			slog.String("planned_key", bestTarget.MinuteKey),
-			slog.Int("available", bestTarget.Available),
+			slog.Int("original_available", originalAvailable),
+			slog.Int("best_available", bestTarget.Available),
+			slog.Bool("shifted", shifted),
 		)
 
-		return SlideResult{PlannedTime: plannedTime, WasShifted: true}
+		return SlideResult{PlannedTime: plannedTime, WasShifted: shifted}
 	}
 
-	// No available slot found, return original time
-	slog.DebugContext(ctx, "bestfit: no available slot found, using original time",
+	// Use original if it has capacity, or no better slot found
+	if originalAvailable > 0 {
+		slog.DebugContext(ctx, "bestfit: using original slot",
+			slog.String("remind_id", remind.ID),
+			slog.String("original_key", originalKey),
+			slog.Int("original_available", originalAvailable),
+		)
+		return SlideResult{PlannedTime: originalTime, WasShifted: false}
+	}
+
+	// No slot available
+	slog.DebugContext(ctx, "bestfit: no available slot, using original time",
 		slog.String("remind_id", remind.ID),
 		slog.String("original_key", originalKey),
 	)

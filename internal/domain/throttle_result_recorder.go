@@ -15,6 +15,8 @@ type ThrottleResultRecord struct {
 	ShiftedCount  int
 	PlannedCount  int
 	TargetCount   int
+	SkippedCount  int
+	FailedCount   int
 }
 
 type ThrottleResultRecorder interface {

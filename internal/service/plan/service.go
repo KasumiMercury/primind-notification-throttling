@@ -115,6 +115,12 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		CapPerMinute:    s.capPerMinute,
 	}
 
+	slog.DebugContext(ctx, "smoothing input",
+		slog.Int("total_count", smoothingInput.TotalCount),
+		slog.Any("count_by_minute", allCountByMinute),
+		slog.Int("cap_per_minute", s.capPerMinute),
+	)
+
 	var targets []smoothing.TargetAllocation
 	if s.smoothingStrategy != nil {
 		targets, err = s.smoothingStrategy.CalculateTargets(ctx, start, end, smoothingInput)

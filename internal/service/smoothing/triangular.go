@@ -55,6 +55,17 @@ func (t *TriangularKernelStrategy) CalculateTargets(
 
 	allocations := buildTargetAllocations(window, normalized, input)
 
+	for _, alloc := range allocations {
+		if alloc.Target > 0 {
+			slog.DebugContext(ctx, "smoothing target allocation",
+				slog.String("minute_key", alloc.MinuteKey),
+				slog.Int("target", alloc.Target),
+				slog.Int("current", alloc.CurrentCount),
+				slog.Int("available", alloc.Available),
+			)
+		}
+	}
+
 	if !validateNoLoss(allocations, input.TotalCount) {
 		slog.WarnContext(ctx, "smoothing allocation validation failed: packet loss detected",
 			slog.Int("expected", input.TotalCount),
