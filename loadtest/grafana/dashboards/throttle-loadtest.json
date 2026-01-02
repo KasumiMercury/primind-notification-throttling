@@ -410,12 +410,132 @@
             "type": "stat"
         },
         {
+            "datasource": {
+                "type": "influxdb",
+                "uid": "influxdb"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "orange",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 6,
+                "w": 8,
+                "x": 0,
+                "y": 19
+            },
+            "id": 8,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "horizontal",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": ["sum"],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.1",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "influxdb",
+                        "uid": "influxdb"
+                    },
+                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"skipped_count\")\n  |> group()\n  |> sum(column: \"_value\")",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Skipped Count",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "influxdb",
+                "uid": "influxdb"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 6,
+                "w": 8,
+                "x": 8,
+                "y": 19
+            },
+            "id": 9,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "horizontal",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": ["sum"],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.1",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "influxdb",
+                        "uid": "influxdb"
+                    },
+                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"failed_count\")\n  |> group()\n  |> sum(column: \"_value\")",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Failed Count",
+            "type": "stat"
+        },
+        {
             "collapsed": false,
             "gridPos": {
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 19
+                "y": 25
             },
             "id": 101,
             "panels": [],
@@ -542,7 +662,7 @@
                 "h": 10,
                 "w": 24,
                 "x": 0,
-                "y": 20
+                "y": 26
             },
             "id": 3,
             "options": {
@@ -579,7 +699,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 30
+                "y": 36
             },
             "id": 102,
             "panels": [],
@@ -706,7 +826,7 @@
                 "h": 10,
                 "w": 24,
                 "x": 0,
-                "y": 31
+                "y": 37
             },
             "id": 4,
             "options": {
@@ -857,7 +977,7 @@
                 "h": 10,
                 "w": 24,
                 "x": 0,
-                "y": 41
+                "y": 47
             },
             "id": 5,
             "options": {
