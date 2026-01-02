@@ -148,32 +148,47 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 	// Track plans by minute key
 	plansByMinute := make(map[string]*domain.Plan)
 
-	// Process previously planned notifications
-	for _, merged := range mergeResult.Notifications {
+	looseNotifications, strictNotifications := s.separateByLane(mergeResult.Notifications)
+
+	slog.DebugContext(ctx, "separated notifications by lane",
+		slog.Int("loose_count", len(looseNotifications)),
+		slog.Int("strict_count", len(strictNotifications)),
+	)
+
+	// Process Loose notifications
+	for _, merged := range looseNotifications {
+		var result ResultItem
 		if !merged.IsNew {
-			result := s.processPreviouslyPlanned(ctx, merged, slideCtx, plansByMinute)
-			if result.WasShifted {
-				shiftedCount++
+			result = s.processPreviouslyPlanned(ctx, merged, slideCtx, plansByMinute)
+		} else {
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordLaneDistribution(ctx, domain.LaneLoose.String())
 			}
-			plannedCount++
-			results = append(results, result)
+			result = s.processRemind(ctx, merged.Remind, domain.LaneLoose, slideCtx, plansByMinute)
 		}
+		if result.WasShifted {
+			shiftedCount++
+		}
+		plannedCount++
+		results = append(results, result)
 	}
 
-	// Process new notifications
-	for _, merged := range mergeResult.Notifications {
-		if merged.IsNew {
-			classifiedLane := s.laneClassifier.Classify(merged.Remind)
+	// Process Strict notifications
+	for _, merged := range strictNotifications {
+		var result ResultItem
+		if !merged.IsNew {
+			result = s.processPreviouslyPlanned(ctx, merged, slideCtx, plansByMinute)
+		} else {
 			if s.throttleMetrics != nil {
-				s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
+				s.throttleMetrics.RecordLaneDistribution(ctx, domain.LaneStrict.String())
 			}
-			result := s.processRemind(ctx, merged.Remind, classifiedLane, slideCtx, plansByMinute)
-			if result.WasShifted {
-				shiftedCount++
-			}
-			plannedCount++
-			results = append(results, result)
+			result = s.processRemind(ctx, merged.Remind, domain.LaneStrict, slideCtx, plansByMinute)
 		}
+		if result.WasShifted {
+			shiftedCount++
+		}
+		plannedCount++
+		results = append(results, result)
 	}
 
 	slog.DebugContext(ctx, "processed notifications",
@@ -360,7 +375,6 @@ func (s *Service) processPreviouslyPlanned(
 				ctx,
 				remind.Time,
 				int(remind.SlideWindowWidth),
-				prevPlan.Lane,
 			)
 			slideResult = sliding.SlideResult{
 				PlannedTime: plannedTime,
@@ -462,7 +476,6 @@ func (s *Service) processRemind(
 			ctx,
 			remind.Time,
 			int(remind.SlideWindowWidth),
-			classifiedLane,
 		)
 		slideResult = sliding.SlideResult{
 			PlannedTime: plannedTime,
@@ -653,4 +666,25 @@ func (s *Service) getCurrentCountsByMinuteExcludingReplanned(
 	}
 
 	return currentByMinute
+}
+
+func (s *Service) separateByLane(notifications []MergedNotification) (loose, strict []MergedNotification) {
+	loose = make([]MergedNotification, 0, len(notifications))
+	strict = make([]MergedNotification, 0, len(notifications))
+
+	for _, n := range notifications {
+		var classifiedLane domain.Lane
+		if n.PreviousPlan != nil {
+			classifiedLane = n.PreviousPlan.Lane
+		} else {
+			classifiedLane = s.laneClassifier.Classify(n.Remind)
+		}
+
+		if classifiedLane.IsLoose() {
+			loose = append(loose, n)
+		} else {
+			strict = append(strict, n)
+		}
+	}
+	return
 }

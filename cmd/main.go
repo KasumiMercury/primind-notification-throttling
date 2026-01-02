@@ -159,7 +159,7 @@ func run() int {
 
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute, throttleMetrics)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
 
 	smoothingStrategy := smoothing.NewStrategy(cfg.Smoothing)
 	slideDiscovery := sliding.NewDiscovery(cfg.Sliding)

@@ -22,7 +22,7 @@ func createTestService(
 ) *Service {
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
 	smoothingStrategy := smoothing.NewPassthroughStrategy()
 	slideDiscovery := sliding.NewBestFitDiscovery()
 	return NewService(remindClient, throttleRepo, laneClassifier, slotCalculator, slotCounter, smoothingStrategy, slideDiscovery, nil, requestCapPerMinute)

@@ -27,12 +27,69 @@ func (g *GreedyDiscovery) FindSlotForLoose(
 	return g.findSlot(ctx, remind, slideCtx)
 }
 
+// FindSlotForStrict finds a slot for strict lane notifications.
+// Strict notifications respect original time and only shift when at hard capacity.
+// They do NOT consider smoothing targets - only the hard cap matters.
 func (g *GreedyDiscovery) FindSlotForStrict(
 	ctx context.Context,
 	remind timemgmt.RemindResponse,
 	slideCtx *SlideContext,
 ) SlideResult {
-	return g.findSlot(ctx, remind, slideCtx)
+	originalTime := remind.Time
+	originalKey := domain.MinuteKey(originalTime)
+
+	if len(slideCtx.Targets) == 0 {
+		return SlideResult{PlannedTime: originalTime, WasShifted: false}
+	}
+
+	// For Strict: Check ONLY hard cap (not smoothing target)
+	// Use original time unless it's at capacity
+	for _, target := range slideCtx.Targets {
+		if target.MinuteKey == originalKey {
+			if target.CurrentCount < slideCtx.CapPerMinute {
+				// Under hard cap - use original time
+				return SlideResult{PlannedTime: originalTime, WasShifted: false}
+			}
+			break
+		}
+	}
+
+	// Original slot at capacity - must find alternative
+	slideWindow := time.Duration(remind.SlideWindowWidth) * time.Second
+	if slideWindow < time.Minute {
+		// Cannot shift if slide window < 1 minute
+		return SlideResult{PlannedTime: originalTime, WasShifted: false}
+	}
+
+	windowStart := originalTime.Truncate(time.Minute)
+	windowEnd := originalTime.Add(slideWindow)
+
+	// Find first slot under hard cap (greedy by time proximity)
+	for _, target := range slideCtx.Targets {
+		if target.MinuteTime.Before(windowStart) || target.MinuteTime.After(windowEnd) {
+			continue
+		}
+		if target.CurrentCount < slideCtx.CapPerMinute {
+			offset := originalTime.Sub(originalTime.Truncate(time.Minute))
+			plannedTime := target.MinuteTime.Add(offset)
+
+			slog.DebugContext(ctx, "greedy-strict: found slot under cap",
+				slog.String("remind_id", remind.ID),
+				slog.String("original_key", originalKey),
+				slog.String("planned_key", target.MinuteKey),
+				slog.Int("current_count", target.CurrentCount),
+				slog.Int("cap", slideCtx.CapPerMinute),
+			)
+			return SlideResult{PlannedTime: plannedTime, WasShifted: true}
+		}
+	}
+
+	// No slot under cap found - use original time anyway
+	slog.DebugContext(ctx, "greedy-strict: no slot under cap found, using original time",
+		slog.String("remind_id", remind.ID),
+		slog.String("original_key", originalKey),
+	)
+	return SlideResult{PlannedTime: originalTime, WasShifted: false}
 }
 
 func (g *GreedyDiscovery) findSlot(

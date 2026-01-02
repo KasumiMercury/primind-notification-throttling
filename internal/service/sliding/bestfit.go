@@ -28,12 +28,84 @@ func (b *BestFitDiscovery) FindSlotForLoose(
 	return b.findSlot(ctx, remind, slideCtx)
 }
 
+// FindSlotForStrict finds a slot for strict lane notifications.
+// Strict notifications respect original time and only shift when at hard capacity.
+// When shifting is necessary, it finds the slot with maximum headroom under cap.
 func (b *BestFitDiscovery) FindSlotForStrict(
 	ctx context.Context,
 	remind timemgmt.RemindResponse,
 	slideCtx *SlideContext,
 ) SlideResult {
-	return b.findSlot(ctx, remind, slideCtx)
+	originalTime := remind.Time
+	originalKey := domain.MinuteKey(originalTime)
+
+	if len(slideCtx.Targets) == 0 {
+		return SlideResult{PlannedTime: originalTime, WasShifted: false}
+	}
+
+	// For Strict: Check ONLY hard cap at original time
+	// Use original time unless it's at capacity
+	for _, target := range slideCtx.Targets {
+		if target.MinuteKey == originalKey {
+			if target.CurrentCount < slideCtx.CapPerMinute {
+				// Under hard cap - use original time
+				slog.DebugContext(ctx, "bestfit-strict: using original slot (under cap)",
+					slog.String("remind_id", remind.ID),
+					slog.String("original_key", originalKey),
+					slog.Int("current_count", target.CurrentCount),
+					slog.Int("cap", slideCtx.CapPerMinute),
+				)
+				return SlideResult{PlannedTime: originalTime, WasShifted: false}
+			}
+			break
+		}
+	}
+
+	slideWindow := time.Duration(remind.SlideWindowWidth) * time.Second
+	if slideWindow < time.Minute {
+		return SlideResult{PlannedTime: originalTime, WasShifted: false}
+	}
+
+	windowStart := originalTime.Truncate(time.Minute)
+	windowEnd := originalTime.Add(slideWindow)
+
+	var bestTarget *smoothing.TargetAllocation
+	var bestHeadroom int
+
+	for i := range slideCtx.Targets {
+		t := &slideCtx.Targets[i]
+		if t.MinuteTime.Before(windowStart) || t.MinuteTime.After(windowEnd) {
+			continue
+		}
+		headroom := slideCtx.CapPerMinute - t.CurrentCount
+		if headroom <= 0 {
+			continue
+		}
+		if bestTarget == nil || headroom > bestHeadroom {
+			bestTarget = t
+			bestHeadroom = headroom
+		}
+	}
+
+	if bestTarget != nil {
+		offset := originalTime.Sub(originalTime.Truncate(time.Minute))
+		plannedTime := bestTarget.MinuteTime.Add(offset)
+
+		slog.DebugContext(ctx, "bestfit-strict: found alternative slot",
+			slog.String("remind_id", remind.ID),
+			slog.String("original_key", originalKey),
+			slog.String("planned_key", bestTarget.MinuteKey),
+			slog.Int("headroom", bestHeadroom),
+		)
+		return SlideResult{PlannedTime: plannedTime, WasShifted: true}
+	}
+
+	// No slot under cap found - use original time anyway
+	slog.DebugContext(ctx, "bestfit-strict: no slot under cap found, using original time",
+		slog.String("remind_id", remind.ID),
+		slog.String("original_key", originalKey),
+	)
+	return SlideResult{PlannedTime: originalTime, WasShifted: false}
 }
 
 func (b *BestFitDiscovery) findSlot(

@@ -302,7 +302,6 @@ func (s *Service) calculateScheduledTime(
 		ctx,
 		originalTime,
 		int(remind.SlideWindowWidth),
-		classifiedLane,
 	)
 
 	return scheduleResult{

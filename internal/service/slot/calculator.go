@@ -6,36 +6,27 @@ import (
 	"time"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
-	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/metrics"
 )
 
 type Calculator struct {
 	slotCounter         Counter
 	requestCapPerMinute int
-	throttleMetrics     *metrics.ThrottleMetrics
 }
 
-func NewCalculator(slotCounter Counter, requestCapPerMinute int, throttleMetrics *metrics.ThrottleMetrics) *Calculator {
+func NewCalculator(slotCounter Counter, requestCapPerMinute int) *Calculator {
 	return &Calculator{
 		slotCounter:         slotCounter,
 		requestCapPerMinute: requestCapPerMinute,
-		throttleMetrics:     throttleMetrics,
 	}
 }
 
+// FindSlot finds an available slot for a notification within its slide window.
+// This is used as a fallback when SlideDiscovery is not available.
 func (c *Calculator) FindSlot(
 	ctx context.Context,
 	originalTime time.Time,
 	slideWindowSeconds int,
-	lane domain.Lane,
 ) (scheduledTime time.Time, wasShifted bool) {
-	startTime := time.Now()
-	defer func() {
-		if c.throttleMetrics != nil {
-			c.throttleMetrics.RecordSlotCalculationDuration(ctx, lane.String(), time.Since(startTime))
-		}
-	}()
-
 	// If no cap configured, use original time
 	if c.requestCapPerMinute <= 0 {
 		return originalTime, false
@@ -48,7 +39,6 @@ func (c *Calculator) FindSlot(
 	if err != nil {
 		slog.WarnContext(ctx, "failed to get slot count, using original time",
 			slog.String("minute_key", originalMinuteKey),
-			slog.String("lane", string(lane)),
 			slog.String("error", err.Error()),
 		)
 		return originalTime, false
@@ -76,7 +66,6 @@ func (c *Calculator) FindSlot(
 		if err != nil {
 			slog.WarnContext(ctx, "failed to get slot count for candidate minute",
 				slog.String("minute_key", candidateMinuteKey),
-				slog.String("lane", string(lane)),
 				slog.String("error", err.Error()),
 			)
 			continue
@@ -87,7 +76,6 @@ func (c *Calculator) FindSlot(
 				slog.String("original_minute", originalMinuteKey),
 				slog.String("shifted_minute", candidateMinuteKey),
 				slog.Duration("shift", offset),
-				slog.String("lane", string(lane)),
 			)
 			return candidateTime, true
 		}
@@ -96,7 +84,6 @@ func (c *Calculator) FindSlot(
 	// No available slot found within slide window, use original time
 	slog.WarnContext(ctx, "no available slot within slide window, using original time",
 		slog.Int("slide_window_seconds", slideWindowSeconds),
-		slog.String("lane", string(lane)),
 	)
 	return originalTime, false
 }
