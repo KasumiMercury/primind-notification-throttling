@@ -13,15 +13,20 @@ import (
 )
 
 type bigQueryRecord struct {
-	RecordedAt    time.Time `bigquery:"recorded_at"`
-	VirtualMinute time.Time `bigquery:"virtual_minute"`
-	Lane          string    `bigquery:"lane"`
-	Phase         string    `bigquery:"phase"`
-	BeforeCount   int64     `bigquery:"before_count"`
-	AfterCount    int64     `bigquery:"after_count"`
-	ShiftedCount  int64     `bigquery:"shifted_count"`
-	PlannedCount  int64     `bigquery:"planned_count"`
-	TargetCount   int64     `bigquery:"target_count"`
+	RecordedAt   time.Time           `bigquery:"recorded_at"`
+	SlotTime     time.Time           `bigquery:"slot_time"`
+	SlotUnix     int64               `bigquery:"slot_unix"`
+	RunID        bigquery.NullString `bigquery:"run_id"`
+	RecordType   string              `bigquery:"record_type"`
+	Lane         bigquery.NullString `bigquery:"lane"`
+	Phase        bigquery.NullString `bigquery:"phase"`
+	BeforeCount  bigquery.NullInt64  `bigquery:"before_count"`
+	AfterCount   bigquery.NullInt64  `bigquery:"after_count"`
+	ShiftedCount bigquery.NullInt64  `bigquery:"shifted_count"`
+	PlannedCount bigquery.NullInt64  `bigquery:"planned_count"`
+	SkippedCount bigquery.NullInt64  `bigquery:"skipped_count"`
+	FailedCount  bigquery.NullInt64  `bigquery:"failed_count"`
+	TargetCount  bigquery.NullInt64  `bigquery:"target_count"`
 }
 
 type bigQueryRecorder struct {
@@ -77,21 +82,70 @@ func (r *bigQueryRecorder) RecordBatchResults(ctx context.Context, records []dom
 	now := time.Now()
 	bqRecords := make([]*bigQueryRecord, 0, len(records))
 	for _, record := range records {
+		runID := record.RunID
+		if runID == "" {
+			runID = "default"
+		}
 		bqRecords = append(bqRecords, &bigQueryRecord{
-			RecordedAt:    now,
-			VirtualMinute: record.VirtualMinute,
-			Lane:          record.Lane,
-			Phase:         record.Phase,
-			BeforeCount:   int64(record.BeforeCount),
-			AfterCount:    int64(record.AfterCount),
-			ShiftedCount:  int64(record.ShiftedCount),
-			PlannedCount:  int64(record.PlannedCount),
-			TargetCount:   int64(record.TargetCount),
+			RecordedAt:   now,
+			SlotTime:     record.SlotTime,
+			SlotUnix:     record.SlotTime.Unix(),
+			RunID:        bigquery.NullString{StringVal: runID, Valid: true},
+			RecordType:   "commit",
+			Lane:         bigquery.NullString{StringVal: record.Lane, Valid: true},
+			Phase:        bigquery.NullString{StringVal: record.Phase, Valid: true},
+			BeforeCount:  bigquery.NullInt64{Int64: int64(record.BeforeCount), Valid: true},
+			AfterCount:   bigquery.NullInt64{Int64: int64(record.AfterCount), Valid: true},
+			ShiftedCount: bigquery.NullInt64{Int64: int64(record.ShiftedCount), Valid: true},
+			PlannedCount: bigquery.NullInt64{Int64: int64(record.PlannedCount), Valid: true},
+			SkippedCount: bigquery.NullInt64{Int64: int64(record.SkippedCount), Valid: true},
+			FailedCount:  bigquery.NullInt64{Int64: int64(record.FailedCount), Valid: true},
+			TargetCount:  bigquery.NullInt64{Valid: false}, // NULL for commit records
 		})
 	}
 
 	if err := r.inserter.Put(ctx, bqRecords); err != nil {
 		slog.WarnContext(ctx, "failed to insert throttle results to BigQuery",
+			slog.String("error", err.Error()),
+			slog.Int("record_count", len(records)),
+		)
+	}
+
+	return nil
+}
+
+func (r *bigQueryRecorder) RecordSmoothingTargets(ctx context.Context, records []domain.SmoothingTargetRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	bqRecords := make([]*bigQueryRecord, 0, len(records))
+	for _, record := range records {
+		runID := record.RunID
+		if runID == "" {
+			runID = "default"
+		}
+		bqRecords = append(bqRecords, &bigQueryRecord{
+			RecordedAt:   now,
+			SlotTime:     record.SlotTime,
+			SlotUnix:     record.SlotTime.Unix(),
+			RunID:        bigquery.NullString{StringVal: runID, Valid: true},
+			RecordType:   "smoothing_target",
+			Lane:         bigquery.NullString{Valid: false}, // NULL for smoothing targets
+			Phase:        bigquery.NullString{Valid: false}, // NULL for smoothing targets
+			BeforeCount:  bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			AfterCount:   bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			ShiftedCount: bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			PlannedCount: bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			SkippedCount: bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			FailedCount:  bigquery.NullInt64{Valid: false},  // NULL for smoothing targets
+			TargetCount:  bigquery.NullInt64{Int64: int64(record.TargetCount), Valid: true},
+		})
+	}
+
+	if err := r.inserter.Put(ctx, bqRecords); err != nil {
+		slog.WarnContext(ctx, "failed to insert smoothing targets to BigQuery",
 			slog.String("error", err.Error()),
 			slog.Int("record_count", len(records)),
 		)

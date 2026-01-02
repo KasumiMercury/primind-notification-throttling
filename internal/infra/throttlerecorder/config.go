@@ -30,7 +30,7 @@ func LoadConfig() *Config {
 
 		BigQueryProjectID: getEnvOrDefault("BIGQUERY_PROJECT_ID", os.Getenv("GOOGLE_CLOUD_PROJECT")),
 		BigQueryDataset:   getEnvOrDefault("BIGQUERY_DATASET", "throttle_results"),
-		BigQueryTable:     getEnvOrDefault("BIGQUERY_TABLE", "minute_results"),
+		BigQueryTable:     getEnvOrDefault("BIGQUERY_TABLE", "throttle_results"),
 	}
 
 	return cfg

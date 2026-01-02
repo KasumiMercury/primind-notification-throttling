@@ -198,9 +198,20 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 	)
 
 	if h.resultRecorder != nil {
+		if len(smoothingTargetsForCommit) > 0 {
+			targetRecords := h.buildSmoothingTargetRecords(runID, smoothingTargetsForCommit)
+			if len(targetRecords) > 0 {
+				if err := h.resultRecorder.RecordSmoothingTargets(commitCtx, targetRecords); err != nil {
+					slog.WarnContext(ctx, "failed to record smoothing targets",
+						slog.String("error", err.Error()),
+					)
+				}
+			}
+		}
+
 		fillAll := h.resultRecorder.FillAllMinutes()
 		if len(result.Results) > 0 || fillAll {
-			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll, smoothingTargetsForCommit)
+			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll)
 			if len(records) > 0 {
 				if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
 					slog.WarnContext(ctx, "failed to record commit phase results",
@@ -266,27 +277,20 @@ type minuteDistribution struct {
 	afterCount   int
 	shiftedCount int
 	plannedCount int
-	targetCount  int
 	skippedCount int
 	failedCount  int
 }
 
-func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool, smoothingTargets map[string]int) []domain.ThrottleResultRecord {
+func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool) []domain.ThrottleResultRecord {
 	distributions := make(map[string]map[string]*minuteDistribution)
 
 	// Pre-populate all minutes with empty distributions when fillAllMinutes is enabled
 	if fillAllMinutes {
 		for minute := windowStart.UTC().Truncate(time.Minute); minute.Before(windowEnd); minute = minute.Add(time.Minute) {
 			key := minute.Format(time.RFC3339)
-			targetCount := 0
-			if smoothingTargets != nil {
-				if t, ok := smoothingTargets[key]; ok {
-					targetCount = t
-				}
-			}
 			distributions[key] = map[string]*minuteDistribution{
-				"strict": {targetCount: targetCount},
-				"loose":  {targetCount: targetCount},
+				"strict": {},
+				"loose":  {},
 			}
 		}
 	}
@@ -296,13 +300,7 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 			distributions[key] = make(map[string]*minuteDistribution)
 		}
 		if distributions[key][lane] == nil {
-			targetCount := 0
-			if smoothingTargets != nil {
-				if t, ok := smoothingTargets[key]; ok {
-					targetCount = t
-				}
-			}
-			distributions[key][lane] = &minuteDistribution{targetCount: targetCount}
+			distributions[key][lane] = &minuteDistribution{}
 		}
 	}
 
@@ -345,23 +343,42 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 
 	var records []domain.ThrottleResultRecord
 	for minuteKey, laneMap := range distributions {
-		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
+		slotTime, _ := time.Parse(time.RFC3339, minuteKey)
 		for lane, dist := range laneMap {
 			records = append(records, domain.ThrottleResultRecord{
-				RunID:         runID,
-				VirtualMinute: virtualMinute,
-				Lane:          lane,
-				Phase:         "commit",
-				BeforeCount:   dist.beforeCount,
-				AfterCount:    dist.afterCount,
-				ShiftedCount:  dist.shiftedCount,
-				PlannedCount:  dist.plannedCount,
-				TargetCount:   dist.targetCount,
-				SkippedCount:  dist.skippedCount,
-				FailedCount:   dist.failedCount,
+				RunID:        runID,
+				SlotTime:     slotTime,
+				Lane:         lane,
+				Phase:        "commit",
+				BeforeCount:  dist.beforeCount,
+				AfterCount:   dist.afterCount,
+				ShiftedCount: dist.shiftedCount,
+				PlannedCount: dist.plannedCount,
+				SkippedCount: dist.skippedCount,
+				FailedCount:  dist.failedCount,
 			})
 		}
 	}
 
+	return records
+}
+
+func (h *ThrottleHandler) buildSmoothingTargetRecords(runID string, smoothingTargets map[string]int) []domain.SmoothingTargetRecord {
+	if len(smoothingTargets) == 0 {
+		return nil
+	}
+
+	records := make([]domain.SmoothingTargetRecord, 0, len(smoothingTargets))
+	for minuteKey, target := range smoothingTargets {
+		slotTime, err := time.Parse(time.RFC3339, minuteKey)
+		if err != nil {
+			continue
+		}
+		records = append(records, domain.SmoothingTargetRecord{
+			RunID:       runID,
+			SlotTime:    slotTime,
+			TargetCount: target,
+		})
+	}
 	return records
 }
