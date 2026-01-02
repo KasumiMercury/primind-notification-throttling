@@ -135,8 +135,6 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 				slog.Int("skipped_count", planResult.SkippedCount),
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
-			// NOTE: Planning phase results are not recorded separately.
-			// All recording happens at commit phase to avoid window overlap issues.
 
 			// Capture smoothing targets for commit window only (for recording)
 			if len(planResult.SmoothingTargets) > 0 {

@@ -117,6 +117,11 @@ func TestPlanRemindsSuccess(t *testing.T) {
 				GetPlannedPacketCount(gomock.Any(), gomock.Any()).
 				Return(0, nil).AnyTimes()
 
+			// Expect GetPlansInRange for merging with previous plans
+			mockThrottleRepo.EXPECT().
+				GetPlansInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*domain.Plan{}, nil).AnyTimes()
+
 			// For each unthrottled remind, expect IsPacketCommitted call
 			// Note: GetPlannedPacket is no longer called as we allow re-planning
 			for _, r := range tt.reminds {
@@ -235,6 +240,11 @@ func TestPlanReminds_SkipsAlreadyCommittedPackets(t *testing.T) {
 		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
 		Return(0, nil).AnyTimes()
 
+	// Expect GetPlansInRange for merging with previous plans
+	mockThrottleRepo.EXPECT().
+		GetPlansInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*domain.Plan{}, nil).AnyTimes()
+
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-committed").
 		Return(true, nil)
@@ -299,6 +309,11 @@ func TestPlanReminds_ReplansAlreadyPlannedPackets(t *testing.T) {
 	mockThrottleRepo.EXPECT().
 		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
 		Return(0, nil).AnyTimes()
+
+	// Expect GetPlansInRange for merging with previous plans
+	mockThrottleRepo.EXPECT().
+		GetPlansInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*domain.Plan{}, nil).AnyTimes()
 
 	// Only check committed status, not planned status
 	mockThrottleRepo.EXPECT().
@@ -366,6 +381,11 @@ func TestPlanReminds_StrictLaneUsesOriginalTimeWhenUnderCap(t *testing.T) {
 	mockThrottleRepo.EXPECT().
 		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
 		Return(0, nil).AnyTimes()
+
+	// Expect GetPlansInRange for merging with previous plans
+	mockThrottleRepo.EXPECT().
+		GetPlansInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*domain.Plan{}, nil).AnyTimes()
 
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-strict").
@@ -438,6 +458,11 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 	mockThrottleRepo.EXPECT().
 		GetPlannedPacketCount(gomock.Any(), gomock.Any()).
 		Return(0, nil).AnyTimes()
+
+	// Expect GetPlansInRange for merging with previous plans
+	mockThrottleRepo.EXPECT().
+		GetPlansInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*domain.Plan{}, nil).AnyTimes()
 
 	mockThrottleRepo.EXPECT().
 		IsPacketCommitted(gomock.Any(), "remind-strict").

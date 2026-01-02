@@ -78,12 +78,38 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 	// Filter already committed and collect active reminds
 	activeReminds, skippedResults, skippedCount := s.filterAlreadyProcessed(ctx, unthrottledReminds)
 
-	allCountByMinute := s.organizeByMinute(unthrottledReminds)
-	currentByMinute := s.getCurrentCountsByMinute(ctx, start, end)
+	// Merge with previous plans
+	mergeResult, err := s.mergeWithPreviousPlans(ctx, activeReminds, start, end)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to merge with previous plans",
+			slog.String("error", err.Error()),
+		)
 
-	// Calculate smoothing targets based on all unthrottled reminds
+		// Fall back to treating all as new
+		mergeResult = &MergeResult{
+			Notifications: make([]MergedNotification, len(activeReminds)),
+			NewCount:      len(activeReminds),
+		}
+		for i, remind := range activeReminds {
+			mergeResult.Notifications[i] = MergedNotification{
+				Remind: remind,
+				IsNew:  true,
+			}
+		}
+	}
+
+	slog.DebugContext(ctx, "merged notifications with previous plans",
+		slog.Int("new_count", mergeResult.NewCount),
+		slog.Int("previously_planned_count", mergeResult.PreviouslyPlannedCount),
+	)
+
+	allCountByMinute := s.organizeByMinuteFromMerged(mergeResult.Notifications)
+	previouslyPlannedByMinute := s.countPreviouslyPlannedByMinute(mergeResult.Notifications)
+	currentByMinute := s.getCurrentCountsByMinuteExcludingReplanned(ctx, start, end, previouslyPlannedByMinute)
+
+	// Calculate smoothing targets based on merged notifications
 	smoothingInput := smoothing.SmoothingInput{
-		TotalCount:      len(unthrottledReminds),
+		TotalCount:      len(mergeResult.Notifications),
 		CountByMinute:   allCountByMinute,
 		CurrentByMinute: currentByMinute,
 		CapPerMinute:    s.capPerMinute,
@@ -102,33 +128,13 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		targets = s.buildPassthroughTargets(start, end, allCountByMinute, currentByMinute)
 	}
 
-	// Classify into strict/loose lanes
-	var strictReminds, looseReminds []timemgmt.RemindResponse
-	for _, remind := range activeReminds {
-		classifiedLane := s.laneClassifier.Classify(remind)
-		if s.throttleMetrics != nil {
-			s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
-		}
-		if classifiedLane.IsStrict() {
-			strictReminds = append(strictReminds, remind)
-		} else {
-			looseReminds = append(looseReminds, remind)
-		}
-	}
-
-	slog.DebugContext(ctx, "classified reminds by lane",
-		slog.Int("strict_count", len(strictReminds)),
-		slog.Int("loose_count", len(looseReminds)),
-		slog.Int("skipped_count", skippedCount),
-	)
-
 	// Create slide context with targets
 	slideCtx := &sliding.SlideContext{
 		Targets:      targets,
 		CapPerMinute: s.capPerMinute,
 	}
 
-	results := make([]ResultItem, 0, len(activeReminds))
+	results := make([]ResultItem, 0, len(mergeResult.Notifications))
 	results = append(results, skippedResults...)
 	plannedCount := 0
 	shiftedCount := 0
@@ -136,25 +142,38 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 	// Track plans by minute key
 	plansByMinute := make(map[string]*domain.Plan)
 
-	// Process loose lane
-	for _, remind := range looseReminds {
-		result := s.processRemind(ctx, remind, domain.LaneLoose, slideCtx, plansByMinute)
-		if result.WasShifted {
-			shiftedCount++
+	// Process previously planned notifications
+	for _, merged := range mergeResult.Notifications {
+		if !merged.IsNew {
+			result := s.processPreviouslyPlanned(ctx, merged, slideCtx, plansByMinute)
+			if result.WasShifted {
+				shiftedCount++
+			}
+			plannedCount++
+			results = append(results, result)
 		}
-		plannedCount++
-		results = append(results, result)
 	}
 
-	// Process strict lane
-	for _, remind := range strictReminds {
-		result := s.processRemind(ctx, remind, domain.LaneStrict, slideCtx, plansByMinute)
-		if result.WasShifted {
-			shiftedCount++
+	// Process new notifications
+	for _, merged := range mergeResult.Notifications {
+		if merged.IsNew {
+			classifiedLane := s.laneClassifier.Classify(merged.Remind)
+			if s.throttleMetrics != nil {
+				s.throttleMetrics.RecordLaneDistribution(ctx, classifiedLane.String())
+			}
+			result := s.processRemind(ctx, merged.Remind, classifiedLane, slideCtx, plansByMinute)
+			if result.WasShifted {
+				shiftedCount++
+			}
+			plannedCount++
+			results = append(results, result)
 		}
-		plannedCount++
-		results = append(results, result)
 	}
+
+	slog.DebugContext(ctx, "processed notifications",
+		slog.Int("previously_planned_count", mergeResult.PreviouslyPlannedCount),
+		slog.Int("new_count", mergeResult.NewCount),
+	)
 
 	// Save plans to Redis
 	if s.throttleRepo != nil {
@@ -237,38 +256,6 @@ func (s *Service) filterAlreadyProcessed(
 	return active, skipped, skippedCount
 }
 
-// organizeByMinute organizes reminds by minute key.
-func (s *Service) organizeByMinute(reminds []timemgmt.RemindResponse) map[string]int {
-	countByMinute := make(map[string]int)
-	for _, remind := range reminds {
-		key := domain.MinuteKey(remind.Time)
-		countByMinute[key]++
-	}
-	return countByMinute
-}
-
-// getCurrentCountsByMinute gets current counts (committed + planned) for each minute.
-func (s *Service) getCurrentCountsByMinute(ctx context.Context, start, end time.Time) map[string]int {
-	currentByMinute := make(map[string]int)
-	if s.slotCounter == nil {
-		return currentByMinute
-	}
-
-	for minute := start.UTC().Truncate(time.Minute); minute.Before(end); minute = minute.Add(time.Minute) {
-		key := domain.MinuteKey(minute)
-		count, err := s.slotCounter.GetTotalCountForMinute(ctx, key)
-		if err != nil {
-			slog.WarnContext(ctx, "failed to get current count for minute",
-				slog.String("minute_key", key),
-				slog.String("error", err.Error()),
-			)
-		}
-		currentByMinute[key] = count
-	}
-
-	return currentByMinute
-}
-
 // buildPassthroughTargets builds targets without smoothing (passthrough).
 func (s *Service) buildPassthroughTargets(
 	start, end time.Time,
@@ -311,6 +298,130 @@ func (s *Service) buildPassthroughTargets(
 	}
 
 	return allocations
+}
+
+// processPreviouslyPlanned handles a notification that was already planned.
+func (s *Service) processPreviouslyPlanned(
+	ctx context.Context,
+	merged MergedNotification,
+	slideCtx *sliding.SlideContext,
+	plansByMinute map[string]*domain.Plan,
+) ResultItem {
+	prevPlan := merged.PreviousPlan
+	remind := merged.Remind
+
+	result := ResultItem{
+		RemindID:     remind.ID,
+		TaskID:       remind.TaskID,
+		TaskType:     remind.TaskType,
+		Lane:         prevPlan.Lane,
+		OriginalTime: remind.Time,
+		PlannedTime:  prevPlan.PlannedTime,
+		WasShifted:   prevPlan.WasShifted(),
+	}
+
+	// Check if previous PlannedTime minute has available capacity
+	prevMinuteKey := domain.MinuteKey(prevPlan.PlannedTime)
+	hasCapacity := s.hasAvailableCapacity(slideCtx, prevMinuteKey)
+
+	if hasCapacity {
+		// Use previous planned time
+		slog.DebugContext(ctx, "preserving previously planned time",
+			slog.String("remind_id", remind.ID),
+			slog.Time("original_time", remind.Time),
+			slog.Time("planned_time", prevPlan.PlannedTime),
+			slog.Bool("was_shifted", result.WasShifted),
+		)
+
+		// Update context to account for this slot
+		if s.slideDiscovery != nil {
+			s.slideDiscovery.UpdateContext(slideCtx, prevMinuteKey)
+		}
+	} else {
+		// Find a new slot
+		var slideResult sliding.SlideResult
+
+		if s.slideDiscovery != nil {
+			if prevPlan.Lane.IsStrict() {
+				slideResult = s.slideDiscovery.FindSlotForStrict(ctx, remind, slideCtx)
+			} else {
+				slideResult = s.slideDiscovery.FindSlotForLoose(ctx, remind, slideCtx)
+			}
+			s.slideDiscovery.UpdateContext(slideCtx, domain.MinuteKey(slideResult.PlannedTime))
+		} else if s.slotCalculator != nil {
+			// Fall back to existing SlotCalculator
+			plannedTime, wasShifted := s.slotCalculator.FindSlot(
+				ctx,
+				remind.Time,
+				int(remind.SlideWindowWidth),
+				prevPlan.Lane,
+			)
+			slideResult = sliding.SlideResult{
+				PlannedTime: plannedTime,
+				WasShifted:  wasShifted,
+			}
+		} else {
+			// No calculator available, use previous planned time anyway
+			slideResult = sliding.SlideResult{
+				PlannedTime: prevPlan.PlannedTime,
+				WasShifted:  prevPlan.WasShifted(),
+			}
+		}
+
+		result.PlannedTime = slideResult.PlannedTime
+		result.WasShifted = slideResult.WasShifted
+
+		slog.DebugContext(ctx, "re-planned previously planned notification due to capacity",
+			slog.String("remind_id", remind.ID),
+			slog.Time("original_time", remind.Time),
+			slog.Time("previous_planned_time", prevPlan.PlannedTime),
+			slog.Time("new_planned_time", slideResult.PlannedTime),
+		)
+	}
+
+	// Record metrics
+	if s.throttleMetrics != nil {
+		s.throttleMetrics.RecordLaneDistribution(ctx, prevPlan.Lane.String())
+		if result.WasShifted {
+			s.throttleMetrics.RecordPacketShifted(ctx, "plan", prevPlan.Lane.String())
+		}
+		s.throttleMetrics.RecordPacketProcessed(ctx, "plan", prevPlan.Lane.String(), "success")
+	}
+
+	// Add to plan
+	minuteKey := domain.MinuteKey(result.PlannedTime)
+	if _, ok := plansByMinute[minuteKey]; !ok {
+		plansByMinute[minuteKey] = domain.NewPlan(minuteKey)
+	}
+	plansByMinute[minuteKey].AddPacket(domain.NewPlannedPacket(
+		remind.ID,
+		remind.Time,
+		result.PlannedTime,
+		prevPlan.Lane,
+	))
+
+	return result
+}
+
+// hasAvailableCapacity checks if the given minute has available capacity in the slide context.
+func (s *Service) hasAvailableCapacity(slideCtx *sliding.SlideContext, minuteKey string) bool {
+	if slideCtx == nil || slideCtx.Targets == nil {
+		return true
+	}
+
+	for _, target := range slideCtx.Targets {
+		if target.MinuteKey == minuteKey {
+			return target.Available > 0
+		}
+	}
+
+	// Minute not in targets (outside planning window), use cap check
+	if slideCtx.CapPerMinute > 0 {
+		// For minutes outside the target window, we allow if cap is not reached
+		return true
+	}
+
+	return true
 }
 
 // processRemind processes a single remind and adds it to the plan.
@@ -396,4 +507,144 @@ func filterUnthrottled(reminds []timemgmt.RemindResponse) []timemgmt.RemindRespo
 		}
 	}
 	return filtered
+}
+
+// mergeWithPreviousPlans merges API notifications with previously planned packets.
+func (s *Service) mergeWithPreviousPlans(
+	ctx context.Context,
+	reminds []timemgmt.RemindResponse,
+	start, end time.Time,
+) (*MergeResult, error) {
+	result := &MergeResult{
+		Notifications: make([]MergedNotification, 0, len(reminds)),
+	}
+
+	// If no repository, treat all as new
+	if s.throttleRepo == nil {
+		for _, remind := range reminds {
+			result.Notifications = append(result.Notifications, MergedNotification{
+				Remind: remind,
+				IsNew:  true,
+			})
+			result.NewCount++
+		}
+		return result, nil
+	}
+
+	// Fetch previous plans in range
+	startKey := domain.MinuteKey(start)
+	endKey := domain.MinuteKey(end)
+	previousPlans, err := s.throttleRepo.GetPlansInRange(ctx, startKey, endKey)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to fetch previous plans, treating all as new",
+			slog.String("error", err.Error()),
+		)
+
+		// Fall back to treating all as new
+		for _, remind := range reminds {
+			result.Notifications = append(result.Notifications, MergedNotification{
+				Remind: remind,
+				IsNew:  true,
+			})
+			result.NewCount++
+		}
+		return result, nil
+	}
+
+	previousPacketByID := make(map[string]*domain.PlannedPacket)
+	for _, plan := range previousPlans {
+		for i := range plan.PlannedPackets {
+			packet := &plan.PlannedPackets[i]
+			previousPacketByID[packet.RemindID] = packet
+		}
+	}
+
+	for _, remind := range reminds {
+		merged := MergedNotification{
+			Remind: remind,
+		}
+
+		if prevPacket, exists := previousPacketByID[remind.ID]; exists {
+			merged.PreviousPlan = prevPacket
+			merged.IsNew = false
+			result.PreviouslyPlannedCount++
+		} else {
+			merged.IsNew = true
+			result.NewCount++
+		}
+
+		result.Notifications = append(result.Notifications, merged)
+	}
+
+	slog.DebugContext(ctx, "merged API notifications with previous plans",
+		slog.Int("new_count", result.NewCount),
+		slog.Int("previously_planned_count", result.PreviouslyPlannedCount),
+	)
+
+	return result, nil
+}
+
+// organizeByMinuteFromMerged organizes merged notifications by minute key.
+// For previously-planned notifications, uses the PlannedTime minute.
+// For new notifications, uses the OriginalTime minute.
+func (s *Service) organizeByMinuteFromMerged(merged []MergedNotification) map[string]int {
+	countByMinute := make(map[string]int)
+	for _, m := range merged {
+		var key string
+		if m.PreviousPlan != nil {
+			// Use previous planned time for already-planned notifications
+			key = domain.MinuteKey(m.PreviousPlan.PlannedTime)
+		} else {
+			// Use original time for new notifications
+			key = domain.MinuteKey(m.Remind.Time)
+		}
+		countByMinute[key]++
+	}
+	return countByMinute
+}
+
+// countPreviouslyPlannedByMinute counts previously planned packets by their planned minute.
+func (s *Service) countPreviouslyPlannedByMinute(notifications []MergedNotification) map[string]int {
+	counts := make(map[string]int)
+	for _, n := range notifications {
+		if n.PreviousPlan != nil {
+			key := domain.MinuteKey(n.PreviousPlan.PlannedTime)
+			counts[key]++
+		}
+	}
+	return counts
+}
+
+// getCurrentCountsByMinuteExcludingReplanned gets current counts for each minute,
+func (s *Service) getCurrentCountsByMinuteExcludingReplanned(
+	ctx context.Context,
+	start, end time.Time,
+	previouslyPlannedByMinute map[string]int,
+) map[string]int {
+	currentByMinute := make(map[string]int)
+	if s.slotCounter == nil {
+		return currentByMinute
+	}
+
+	for minute := start.UTC().Truncate(time.Minute); minute.Before(end); minute = minute.Add(time.Minute) {
+		key := domain.MinuteKey(minute)
+		count, err := s.slotCounter.GetTotalCountForMinute(ctx, key)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get current count for minute",
+				slog.String("minute_key", key),
+				slog.String("error", err.Error()),
+			)
+		}
+
+		// Subtract previously planned packets that will be re-processed
+		if exclude, ok := previouslyPlannedByMinute[key]; ok {
+			count -= exclude
+			if count < 0 {
+				count = 0
+			}
+		}
+		currentByMinute[key] = count
+	}
+
+	return currentByMinute
 }
