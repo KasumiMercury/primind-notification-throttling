@@ -146,6 +146,36 @@
                     {
                         "matcher": {
                             "id": "byName",
+                            "options": "target_count"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Target (Smoothing)"
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "purple",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "custom.lineStyle",
+                                "value": {
+                                    "dash": [10, 10],
+                                    "fill": "dash"
+                                }
+                            },
+                            {
+                                "id": "custom.lineWidth",
+                                "value": 2
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
                             "options": "virtual_minute_unix"
                         },
                         "properties": [
@@ -192,7 +222,7 @@
                         "type": "influxdb",
                         "uid": "influxdb"
                     },
-                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"virtual_minute\", \"_field\"])\n  |> sum()\n  |> group()\n  |> pivot(rowKey: [\"virtual_minute\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with virtual_minute_unix: int(v: time(v: r.virtual_minute)) / 1000000}))\n  |> sort(columns: [\"virtual_minute_unix\"])",
+                    "query": "before_after = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"virtual_minute\", \"_field\"])\n  |> sum()\n\ntarget = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"target_count\")\n  |> group(columns: [\"virtual_minute\", \"_field\"])\n  |> max()\n\nunion(tables: [before_after, target])\n  |> group()\n  |> pivot(rowKey: [\"virtual_minute\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with virtual_minute_unix: int(v: time(v: r.virtual_minute)) / 1000000}))\n  |> sort(columns: [\"virtual_minute_unix\"])",
                     "refId": "A"
                 }
             ],
