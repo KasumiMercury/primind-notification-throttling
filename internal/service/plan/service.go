@@ -75,17 +75,16 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		slog.Int("unthrottled_count", len(unthrottledReminds)),
 	)
 
-	// Filter already committed/planned and collect active reminds
+	// Filter already committed and collect active reminds
 	activeReminds, skippedResults, skippedCount := s.filterAlreadyProcessed(ctx, unthrottledReminds)
 
-	// Organize by minute
-	countByMinute := s.organizeByMinute(activeReminds)
+	allCountByMinute := s.organizeByMinute(unthrottledReminds)
 	currentByMinute := s.getCurrentCountsByMinute(ctx, start, end)
 
-	// Calculate smoothing targets
+	// Calculate smoothing targets based on all unthrottled reminds
 	smoothingInput := smoothing.SmoothingInput{
-		TotalCount:      len(activeReminds),
-		CountByMinute:   countByMinute,
+		TotalCount:      len(unthrottledReminds),
+		CountByMinute:   allCountByMinute,
 		CurrentByMinute: currentByMinute,
 		CapPerMinute:    s.capPerMinute,
 	}
@@ -97,10 +96,10 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 			slog.WarnContext(ctx, "failed to calculate smoothing targets, using passthrough",
 				slog.String("error", err.Error()),
 			)
-			targets = s.buildPassthroughTargets(start, end, countByMinute, currentByMinute)
+			targets = s.buildPassthroughTargets(start, end, allCountByMinute, currentByMinute)
 		}
 	} else {
-		targets = s.buildPassthroughTargets(start, end, countByMinute, currentByMinute)
+		targets = s.buildPassthroughTargets(start, end, allCountByMinute, currentByMinute)
 	}
 
 	// Classify into strict/loose lanes
@@ -175,15 +174,24 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		slog.Int("shifted_count", shiftedCount),
 	)
 
+	smoothingTargets := make([]SmoothingTarget, len(targets))
+	for i, t := range targets {
+		smoothingTargets[i] = SmoothingTarget{
+			MinuteKey:  t.MinuteKey,
+			MinuteTime: t.MinuteTime,
+			Target:     t.Target,
+		}
+	}
+
 	return &Response{
-		PlannedCount: plannedCount,
-		SkippedCount: skippedCount,
-		ShiftedCount: shiftedCount,
-		Results:      results,
+		PlannedCount:     plannedCount,
+		SkippedCount:     skippedCount,
+		ShiftedCount:     shiftedCount,
+		Results:          results,
+		SmoothingTargets: smoothingTargets,
 	}, nil
 }
 
-// filterAlreadyProcessed filters out reminds that are already committed or planned.
 func (s *Service) filterAlreadyProcessed(
 	ctx context.Context,
 	reminds []timemgmt.RemindResponse,
@@ -214,28 +222,6 @@ func (s *Service) filterAlreadyProcessed(
 					PlannedTime:  remind.Time,
 					Skipped:      true,
 					SkipReason:   "already committed",
-				})
-				skippedCount++
-				if s.throttleMetrics != nil {
-					s.throttleMetrics.RecordPacketProcessed(ctx, "plan", classifiedLane.String(), "skipped")
-				}
-				continue
-			}
-
-			_, err = s.throttleRepo.GetPlannedPacket(ctx, remind.ID)
-			if err == nil {
-				slog.DebugContext(ctx, "skipping already planned remind",
-					slog.String("remind_id", remind.ID),
-				)
-				skipped = append(skipped, ResultItem{
-					RemindID:     remind.ID,
-					TaskID:       remind.TaskID,
-					TaskType:     remind.TaskType,
-					Lane:         classifiedLane,
-					OriginalTime: remind.Time,
-					PlannedTime:  remind.Time,
-					Skipped:      true,
-					SkipReason:   "already planned",
 				})
 				skippedCount++
 				if s.throttleMetrics != nil {

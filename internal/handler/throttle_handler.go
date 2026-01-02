@@ -97,6 +97,9 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, planEndOverride *time.Time, commitEndOverride *time.Time) {
 	runID := c.GetHeader("X-Run-ID")
 
+	// Capture smoothing targets from planning phase for recording
+	var smoothingTargetsForCommit map[string]int
+
 	if h.planService != nil {
 		planStart := now
 		planEnd := now.Add(time.Duration(h.config.Throttle.PlanningWindowMinutes) * time.Minute)
@@ -134,6 +137,22 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 			)
 			// NOTE: Planning phase results are not recorded separately.
 			// All recording happens at commit phase to avoid window overlap issues.
+
+			// Capture smoothing targets for commit window only (for recording)
+			if len(planResult.SmoothingTargets) > 0 {
+				commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+				if commitEndOverride != nil {
+					commitEnd = *commitEndOverride
+				}
+				smoothingTargetsForCommit = make(map[string]int)
+				for _, target := range planResult.SmoothingTargets {
+					// Filter to commit window only
+					if !target.MinuteTime.Before(now) && target.MinuteTime.Before(commitEnd) {
+						key := target.MinuteTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+						smoothingTargetsForCommit[key] = target.Target
+					}
+				}
+			}
 		}
 		planSpan.End()
 	}
@@ -183,7 +202,7 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 	if h.resultRecorder != nil {
 		fillAll := h.resultRecorder.FillAllMinutes()
 		if len(result.Results) > 0 || fillAll {
-			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll)
+			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll, smoothingTargetsForCommit)
 			if len(records) > 0 {
 				if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
 					slog.WarnContext(ctx, "failed to record commit phase results",
@@ -249,18 +268,25 @@ type minuteDistribution struct {
 	afterCount   int
 	shiftedCount int
 	plannedCount int
+	targetCount  int
 }
 
-func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool) []domain.ThrottleResultRecord {
+func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool, smoothingTargets map[string]int) []domain.ThrottleResultRecord {
 	distributions := make(map[string]map[string]*minuteDistribution)
 
 	// Pre-populate all minutes with empty distributions when fillAllMinutes is enabled
 	if fillAllMinutes {
 		for minute := windowStart.UTC().Truncate(time.Minute); minute.Before(windowEnd); minute = minute.Add(time.Minute) {
 			key := minute.Format(time.RFC3339)
+			targetCount := 0
+			if smoothingTargets != nil {
+				if t, ok := smoothingTargets[key]; ok {
+					targetCount = t
+				}
+			}
 			distributions[key] = map[string]*minuteDistribution{
-				"strict": {},
-				"loose":  {},
+				"strict": {targetCount: targetCount},
+				"loose":  {targetCount: targetCount},
 			}
 		}
 	}
@@ -278,7 +304,13 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
 		}
 		if distributions[originalMinuteKey][lane] == nil {
-			distributions[originalMinuteKey][lane] = &minuteDistribution{}
+			targetCount := 0
+			if smoothingTargets != nil {
+				if t, ok := smoothingTargets[originalMinuteKey]; ok {
+					targetCount = t
+				}
+			}
+			distributions[originalMinuteKey][lane] = &minuteDistribution{targetCount: targetCount}
 		}
 		distributions[originalMinuteKey][lane].beforeCount++
 
@@ -286,7 +318,13 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 			distributions[scheduledMinuteKey] = make(map[string]*minuteDistribution)
 		}
 		if distributions[scheduledMinuteKey][lane] == nil {
-			distributions[scheduledMinuteKey][lane] = &minuteDistribution{}
+			targetCount := 0
+			if smoothingTargets != nil {
+				if t, ok := smoothingTargets[scheduledMinuteKey]; ok {
+					targetCount = t
+				}
+			}
+			distributions[scheduledMinuteKey][lane] = &minuteDistribution{targetCount: targetCount}
 		}
 		distributions[scheduledMinuteKey][lane].afterCount++
 
@@ -313,6 +351,7 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 				AfterCount:    dist.afterCount,
 				ShiftedCount:  dist.shiftedCount,
 				PlannedCount:  dist.plannedCount,
+				TargetCount:   dist.targetCount,
 			})
 		}
 	}

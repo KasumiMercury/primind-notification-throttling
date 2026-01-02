@@ -21,6 +21,7 @@ type bigQueryRecord struct {
 	AfterCount    int64     `bigquery:"after_count"`
 	ShiftedCount  int64     `bigquery:"shifted_count"`
 	PlannedCount  int64     `bigquery:"planned_count"`
+	TargetCount   int64     `bigquery:"target_count"`
 }
 
 type bigQueryRecorder struct {
@@ -85,6 +86,7 @@ func (r *bigQueryRecorder) RecordBatchResults(ctx context.Context, records []dom
 			AfterCount:    int64(record.AfterCount),
 			ShiftedCount:  int64(record.ShiftedCount),
 			PlannedCount:  int64(record.PlannedCount),
+			TargetCount:   int64(record.TargetCount),
 		})
 	}
 

@@ -87,6 +87,7 @@ func (r *influxDBRecorder) RecordBatchResults(ctx context.Context, records []dom
 				"after_count":         record.AfterCount,
 				"shifted_count":       record.ShiftedCount,
 				"planned_count":       record.PlannedCount,
+				"target_count":        record.TargetCount,
 				"virtual_minute_unix": record.VirtualMinute.Unix(),
 			},
 			pointTime,
