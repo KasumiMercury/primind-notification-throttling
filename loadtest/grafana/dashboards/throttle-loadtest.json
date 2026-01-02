@@ -15,11 +15,11 @@
             }
         ]
     },
-    "description": "Load test analysis dashboard with virtual time axis. Compares notification distribution before/after throttling and tracks commit phase behavior.",
+    "description": "Load test analysis dashboard with slot time axis. Compares notification distribution before/after throttling and tracks commit phase behavior.",
     "editable": true,
     "fiscalYearStartMonth": 0,
     "graphTooltip": 0,
-    "id": 3,
+    "id": 2,
     "links": [
         {
             "targetBlank": false,
@@ -176,7 +176,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute_unix"
+                            "options": "slot_unix"
                         },
                         "properties": [
                             {
@@ -188,7 +188,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute"
+                            "options": "slot"
                         },
                         "properties": []
                     }
@@ -213,7 +213,7 @@
                     "mode": "single",
                     "sort": "none"
                 },
-                "xField": "virtual_minute_unix"
+                "xField": "slot_unix"
             },
             "pluginVersion": "12.3.1",
             "targets": [
@@ -222,11 +222,11 @@
                         "type": "influxdb",
                         "uid": "influxdb"
                     },
-                    "query": "before_after = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"virtual_minute\", \"_field\"])\n  |> sum()\n\ntarget = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"target_count\")\n  |> group(columns: [\"virtual_minute\", \"_field\"])\n  |> max()\n\nunion(tables: [before_after, target])\n  |> group()\n  |> pivot(rowKey: [\"virtual_minute\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with virtual_minute_unix: int(v: time(v: r.virtual_minute)) / 1000000}))\n  |> sort(columns: [\"virtual_minute_unix\"])",
+                    "query": "before_after = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> sum()\n\ntarget = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"smoothing_target\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"target_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> max()\n\nunion(tables: [before_after, target])\n  |> group()\n  |> pivot(rowKey: [\"slot\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with slot_unix: int(v: time(v: r.slot)) / 1000000}))\n  |> sort(columns: [\"slot_unix\"])",
                     "refId": "A"
                 }
             ],
-            "title": "Notification Distribution by Virtual Minute",
+            "title": "Notification Distribution by Slot",
             "type": "trend"
         },
         {
@@ -254,8 +254,8 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
-                "w": 8,
+                "h": 5,
+                "w": 4,
                 "x": 0,
                 "y": 13
             },
@@ -314,9 +314,9 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
-                "w": 8,
-                "x": 8,
+                "h": 5,
+                "w": 4,
+                "x": 4,
                 "y": 13
             },
             "id": 6,
@@ -374,9 +374,9 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
-                "w": 8,
-                "x": 16,
+                "h": 5,
+                "w": 4,
+                "x": 8,
                 "y": 13
             },
             "id": 7,
@@ -434,10 +434,10 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
-                "w": 8,
-                "x": 0,
-                "y": 19
+                "h": 5,
+                "w": 4,
+                "x": 12,
+                "y": 13
             },
             "id": 8,
             "options": {
@@ -494,10 +494,10 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
-                "w": 8,
-                "x": 8,
-                "y": 19
+                "h": 5,
+                "w": 4,
+                "x": 16,
+                "y": 13
             },
             "id": 9,
             "options": {
@@ -535,7 +535,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 25
+                "y": 18
             },
             "id": 101,
             "panels": [],
@@ -640,7 +640,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute_unix"
+                            "options": "slot_unix"
                         },
                         "properties": [
                             {
@@ -652,7 +652,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute"
+                            "options": "slot"
                         },
                         "properties": []
                     }
@@ -662,7 +662,7 @@
                 "h": 10,
                 "w": 24,
                 "x": 0,
-                "y": 26
+                "y": 19
             },
             "id": 3,
             "options": {
@@ -677,7 +677,7 @@
                     "mode": "single",
                     "sort": "none"
                 },
-                "xField": "virtual_minute_unix"
+                "xField": "slot_unix"
             },
             "pluginVersion": "12.3.1",
             "targets": [
@@ -686,11 +686,11 @@
                         "type": "influxdb",
                         "uid": "influxdb"
                     },
-                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.phase == \"commit\")\n  |> filter(fn: (r) => r._field == \"shifted_count\")\n  |> group(columns: [\"virtual_minute\", \"lane\"])\n  |> sum()\n  |> group()\n  |> pivot(rowKey: [\"virtual_minute\"], columnKey: [\"lane\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with virtual_minute_unix: int(v: time(v: r.virtual_minute)) / 1000000}))\n  |> sort(columns: [\"virtual_minute_unix\"])",
+                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.phase == \"commit\")\n  |> filter(fn: (r) => r._field == \"shifted_count\")\n  |> group(columns: [\"slot\", \"lane\"])\n  |> sum()\n  |> group()\n  |> pivot(rowKey: [\"slot\"], columnKey: [\"lane\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with slot_unix: int(v: time(v: r.slot)) / 1000000}))\n  |> sort(columns: [\"slot_unix\"])",
                     "refId": "A"
                 }
             ],
-            "title": "Shifted Packets by Lane per Virtual Minute (Commit Phase)",
+            "title": "Shifted Packets by Lane per Slot (Commit Phase)",
             "type": "trend"
         },
         {
@@ -699,7 +699,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 36
+                "y": 29
             },
             "id": 102,
             "panels": [],
@@ -804,7 +804,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute_unix"
+                            "options": "slot_unix"
                         },
                         "properties": [
                             {
@@ -816,7 +816,7 @@
                     {
                         "matcher": {
                             "id": "byName",
-                            "options": "virtual_minute"
+                            "options": "slot"
                         },
                         "properties": []
                     }
@@ -826,7 +826,7 @@
                 "h": 10,
                 "w": 24,
                 "x": 0,
-                "y": 37
+                "y": 30
             },
             "id": 4,
             "options": {
@@ -841,7 +841,7 @@
                     "mode": "single",
                     "sort": "none"
                 },
-                "xField": "virtual_minute_unix"
+                "xField": "slot_unix"
             },
             "pluginVersion": "12.3.1",
             "targets": [
@@ -850,11 +850,11 @@
                         "type": "influxdb",
                         "uid": "influxdb"
                     },
-                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.phase == \"commit\")\n  |> filter(fn: (r) => r._field == \"planned_count\")\n  |> group(columns: [\"virtual_minute\", \"lane\"])\n  |> sum()\n  |> group()\n  |> pivot(rowKey: [\"virtual_minute\"], columnKey: [\"lane\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with virtual_minute_unix: int(v: time(v: r.virtual_minute)) / 1000000}))\n  |> sort(columns: [\"virtual_minute_unix\"])",
+                    "query": "from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.phase == \"commit\")\n  |> filter(fn: (r) => r._field == \"planned_count\")\n  |> group(columns: [\"slot\", \"lane\"])\n  |> sum()\n  |> group()\n  |> pivot(rowKey: [\"slot\"], columnKey: [\"lane\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with slot_unix: int(v: time(v: r.slot)) / 1000000}))\n  |> sort(columns: [\"slot_unix\"])",
                     "refId": "A"
                 }
             ],
-            "title": "Planned Packets by Lane per Virtual Minute",
+            "title": "Planned Packets by Lane per Slot",
             "type": "trend"
         }
     ],
@@ -891,5 +891,5 @@
     "timezone": "utc",
     "title": "Throttle Load Test Analysis",
     "uid": "throttle-loadtest",
-    "version": 72
+    "version": 1
 }
