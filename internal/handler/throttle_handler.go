@@ -62,33 +62,47 @@ func (h *ThrottleHandler) HandleThrottleBatch(c *gin.Context) {
 		now = time.Now().Truncate(time.Minute)
 	}
 
-	var commitEndOverride *time.Time
-	if toStr := c.Query("to"); toStr != "" {
-		parsed, err := time.Parse(time.RFC3339, toStr)
+	var planEndOverride *time.Time
+	if planEndStr := c.Query("plan_end"); planEndStr != "" {
+		parsed, err := time.Parse(time.RFC3339, planEndStr)
 		if err != nil {
-			respondProtoError(c, http.StatusBadRequest, "invalid to time format, expected RFC3339")
+			respondProtoError(c, http.StatusBadRequest, "invalid plan_end time format, expected RFC3339")
+			return
+		}
+		t := parsed.Truncate(time.Minute)
+		planEndOverride = &t
+	}
+
+	var commitEndOverride *time.Time
+	if commitEndStr := c.Query("commit_end"); commitEndStr != "" {
+		parsed, err := time.Parse(time.RFC3339, commitEndStr)
+		if err != nil {
+			respondProtoError(c, http.StatusBadRequest, "invalid commit_end time format, expected RFC3339")
 			return
 		}
 		t := parsed.Truncate(time.Minute)
 		commitEndOverride = &t
 	}
 
-	h.processThrottle(c, ctx, now, commitEndOverride)
+	h.processThrottle(c, ctx, now, planEndOverride, commitEndOverride)
 }
 
 func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	now := time.Now().Truncate(time.Minute)
-	h.processThrottle(c, ctx, now, nil)
+	h.processThrottle(c, ctx, now, nil, nil)
 }
 
-func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, commitEndOverride *time.Time) {
+func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, planEndOverride *time.Time, commitEndOverride *time.Time) {
 	runID := c.GetHeader("X-Run-ID")
 
 	if h.planService != nil {
 		planStart := now
 		planEnd := now.Add(time.Duration(h.config.Throttle.PlanningWindowMinutes) * time.Minute)
+		if planEndOverride != nil {
+			planEnd = *planEndOverride
+		}
 
 		slog.InfoContext(ctx, "starting planning phase",
 			slog.Time("plan_start", planStart),
