@@ -24,6 +24,7 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/lane"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/plan"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/service/sliding"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/slot"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/smoothing"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/service/throttle"
@@ -158,9 +159,10 @@ func run() int {
 
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute, throttleMetrics)
+	slotCalculator := slot.NewCalculator(slotCounter, cfg.Throttle.RequestCapPerMinute)
 
-	smoothingStrategy := smoothing.NewPassthroughStrategy()
+	smoothingStrategy := smoothing.NewStrategy(cfg.Smoothing)
+	slideDiscovery := sliding.NewDiscovery(cfg.Sliding)
 
 	throttleService := throttle.NewService(
 		remindTimeClient,
@@ -175,8 +177,11 @@ func run() int {
 		throttleRepo,
 		laneClassifier,
 		slotCalculator,
+		slotCounter,
 		smoothingStrategy,
+		slideDiscovery,
 		throttleMetrics,
+		cfg.Throttle.RequestCapPerMinute,
 	)
 	throttleHandler := handler.NewThrottleHandler(throttleService, planService, cfg, throttleMetrics, resultRecorder)
 	remindCancelHandler := handler.NewRemindCancelHandler(throttleService)

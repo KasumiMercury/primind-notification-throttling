@@ -16,6 +16,14 @@ func (n *noopRecorder) RecordBatchResults(_ context.Context, _ []domain.Throttle
 	return nil
 }
 
+func (n *noopRecorder) RecordSmoothingTargets(_ context.Context, _ []domain.SmoothingTargetRecord) error {
+	return nil
+}
+
+func (n *noopRecorder) FillAllMinutes() bool {
+	return false
+}
+
 func (n *noopRecorder) Flush(_ context.Context) error {
 	return nil
 }

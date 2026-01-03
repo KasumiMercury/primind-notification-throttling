@@ -13,7 +13,9 @@ type ResultItem struct {
 	FCMTokens     []string    `json:"fcm_tokens"`
 	Lane          domain.Lane `json:"lane"`
 	OriginalTime  time.Time   `json:"original_time"`
+	PlannedTime   time.Time   `json:"planned_time"`
 	ScheduledTime time.Time   `json:"scheduled_time"`
+	WasPlanned    bool        `json:"was_planned"`
 	WasShifted    bool        `json:"was_shifted"`
 	Skipped       bool        `json:"skipped"`
 	SkipReason    string      `json:"skip_reason,omitempty"`

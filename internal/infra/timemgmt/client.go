@@ -105,17 +105,23 @@ func (c *Client) GetRemindsByTimeRange(ctx context.Context, start, end time.Time
 	return remindsResp, nil
 }
 
-func (c *Client) UpdateThrottled(ctx context.Context, id string, throttled bool) error {
+func (c *Client) UpdateThrottled(ctx context.Context, id string, throttled bool, runID string) error {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse base URL: %w", err)
 	}
 
 	u.Path = fmt.Sprintf("/api/v1/reminds/%s/throttled", id)
+	if runID != "" {
+		q := u.Query()
+		q.Set("run_id", runID)
+		u.RawQuery = q.Encode()
+	}
 
 	slog.Debug("updating throttled flag",
 		slog.String("remind_id", id),
 		slog.Bool("throttled", throttled),
+		slog.String("run_id", runID),
 		slog.String("url", u.String()),
 	)
 

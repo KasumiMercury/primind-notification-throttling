@@ -21,11 +21,11 @@ import (
 )
 
 type ThrottleHandler struct {
-	throttleService  *throttle.Service
-	planService      *plan.Service
-	config           *config.Config
-	throttleMetrics  *metrics.ThrottleMetrics
-	resultRecorder   domain.ThrottleResultRecorder
+	throttleService *throttle.Service
+	planService     *plan.Service
+	config          *config.Config
+	throttleMetrics *metrics.ThrottleMetrics
+	resultRecorder  domain.ThrottleResultRecorder
 }
 
 func NewThrottleHandler(
@@ -36,11 +36,11 @@ func NewThrottleHandler(
 	resultRecorder domain.ThrottleResultRecorder,
 ) *ThrottleHandler {
 	return &ThrottleHandler{
-		throttleService:  throttleService,
-		planService:      planService,
-		config:           cfg,
-		throttleMetrics:  throttleMetrics,
-		resultRecorder:   resultRecorder,
+		throttleService: throttleService,
+		planService:     planService,
+		config:          cfg,
+		throttleMetrics: throttleMetrics,
+		resultRecorder:  resultRecorder,
 	}
 }
 
@@ -62,33 +62,50 @@ func (h *ThrottleHandler) HandleThrottleBatch(c *gin.Context) {
 		now = time.Now().Truncate(time.Minute)
 	}
 
-	var commitEndOverride *time.Time
-	if toStr := c.Query("to"); toStr != "" {
-		parsed, err := time.Parse(time.RFC3339, toStr)
+	var planEndOverride *time.Time
+	if planEndStr := c.Query("plan_end"); planEndStr != "" {
+		parsed, err := time.Parse(time.RFC3339, planEndStr)
 		if err != nil {
-			respondProtoError(c, http.StatusBadRequest, "invalid to time format, expected RFC3339")
+			respondProtoError(c, http.StatusBadRequest, "invalid plan_end time format, expected RFC3339")
+			return
+		}
+		t := parsed.Truncate(time.Minute)
+		planEndOverride = &t
+	}
+
+	var commitEndOverride *time.Time
+	if commitEndStr := c.Query("commit_end"); commitEndStr != "" {
+		parsed, err := time.Parse(time.RFC3339, commitEndStr)
+		if err != nil {
+			respondProtoError(c, http.StatusBadRequest, "invalid commit_end time format, expected RFC3339")
 			return
 		}
 		t := parsed.Truncate(time.Minute)
 		commitEndOverride = &t
 	}
 
-	h.processThrottle(c, ctx, now, commitEndOverride)
+	h.processThrottle(c, ctx, now, planEndOverride, commitEndOverride)
 }
 
 func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	now := time.Now().Truncate(time.Minute)
-	h.processThrottle(c, ctx, now, nil)
+	h.processThrottle(c, ctx, now, nil, nil)
 }
 
-func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, commitEndOverride *time.Time) {
+func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, planEndOverride *time.Time, commitEndOverride *time.Time) {
 	runID := c.GetHeader("X-Run-ID")
 
+	// Capture smoothing targets from planning phase for recording
+	var smoothingTargetsForCommit map[string]int
+
 	if h.planService != nil {
-		planStart := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+		planStart := now
 		planEnd := now.Add(time.Duration(h.config.Throttle.PlanningWindowMinutes) * time.Minute)
+		if planEndOverride != nil {
+			planEnd = *planEndOverride
+		}
 
 		slog.InfoContext(ctx, "starting planning phase",
 			slog.Time("plan_start", planStart),
@@ -119,12 +136,19 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
 
-			if h.resultRecorder != nil && len(planResult.Results) > 0 {
-				records := h.buildPlanningResultRecords(runID, planResult)
-				if err := h.resultRecorder.RecordBatchResults(planCtx, records); err != nil {
-					slog.WarnContext(ctx, "failed to record planning phase results",
-						slog.String("error", err.Error()),
-					)
+			// Capture smoothing targets for commit window only (for recording)
+			if len(planResult.SmoothingTargets) > 0 {
+				commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+				if commitEndOverride != nil {
+					commitEnd = *commitEndOverride
+				}
+				smoothingTargetsForCommit = make(map[string]int)
+				for _, target := range planResult.SmoothingTargets {
+					// Filter to commit window only
+					if !target.MinuteTime.Before(now) && target.MinuteTime.Before(commitEnd) {
+						key := target.MinuteTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+						smoothingTargetsForCommit[key] = target.Target
+					}
 				}
 			}
 		}
@@ -133,6 +157,9 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 
 	commitStart := now
 	commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+	if commitEndOverride != nil {
+		commitEnd = *commitEndOverride
+	}
 
 	slog.InfoContext(ctx, "starting commit phase",
 		slog.Time("commit_start", commitStart),
@@ -170,12 +197,28 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 		slog.Int("shifted", result.ShiftedCount),
 	)
 
-	if h.resultRecorder != nil && len(result.Results) > 0 {
-		records := h.buildCommitResultRecords(runID, result)
-		if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
-			slog.WarnContext(ctx, "failed to record commit phase results",
-				slog.String("error", err.Error()),
-			)
+	if h.resultRecorder != nil {
+		if len(smoothingTargetsForCommit) > 0 {
+			targetRecords := h.buildSmoothingTargetRecords(runID, smoothingTargetsForCommit)
+			if len(targetRecords) > 0 {
+				if err := h.resultRecorder.RecordSmoothingTargets(commitCtx, targetRecords); err != nil {
+					slog.WarnContext(ctx, "failed to record smoothing targets",
+						slog.String("error", err.Error()),
+					)
+				}
+			}
+		}
+
+		fillAll := h.resultRecorder.FillAllMinutes()
+		if len(result.Results) > 0 || fillAll {
+			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll)
+			if len(records) > 0 {
+				if err := h.resultRecorder.RecordBatchResults(commitCtx, records); err != nil {
+					slog.WarnContext(ctx, "failed to record commit phase results",
+						slog.String("error", err.Error()),
+					)
+				}
+			}
 		}
 	}
 
@@ -234,55 +277,85 @@ type minuteDistribution struct {
 	afterCount   int
 	shiftedCount int
 	plannedCount int
+	skippedCount int
+	failedCount  int
 }
 
-func (h *ThrottleHandler) buildPlanningResultRecords(runID string, result *plan.Response) []domain.ThrottleResultRecord {
+func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response, windowStart, windowEnd time.Time, fillAllMinutes bool) []domain.ThrottleResultRecord {
 	distributions := make(map[string]map[string]*minuteDistribution)
 
+	// Pre-populate all minutes with empty distributions when fillAllMinutes is enabled
+	if fillAllMinutes {
+		for minute := windowStart.UTC().Truncate(time.Minute); minute.Before(windowEnd); minute = minute.Add(time.Minute) {
+			key := minute.Format(time.RFC3339)
+			distributions[key] = map[string]*minuteDistribution{
+				"strict": {},
+				"loose":  {},
+			}
+		}
+	}
+
+	ensureDistribution := func(key, lane string) {
+		if distributions[key] == nil {
+			distributions[key] = make(map[string]*minuteDistribution)
+		}
+		if distributions[key][lane] == nil {
+			distributions[key][lane] = &minuteDistribution{}
+		}
+	}
+
 	for _, item := range result.Results {
+		lane := item.Lane.String()
+		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+
+		// Initialize distribution for original minute
+		ensureDistribution(originalMinuteKey, lane)
+
+		// Always count in beforeCount (original time)
+		distributions[originalMinuteKey][lane].beforeCount++
+
+		// Handle skipped items
 		if item.Skipped {
+			distributions[originalMinuteKey][lane].skippedCount++
 			continue
 		}
 
-		lane := item.Lane.String()
-		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-		plannedMinuteKey := item.PlannedTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+		// Handle failed items
+		if !item.Success {
+			distributions[originalMinuteKey][lane].failedCount++
+			continue
+		}
 
-		if distributions[originalMinuteKey] == nil {
-			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[originalMinuteKey][lane] == nil {
-			distributions[originalMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[originalMinuteKey][lane].beforeCount++
-
-		if distributions[plannedMinuteKey] == nil {
-			distributions[plannedMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[plannedMinuteKey][lane] == nil {
-			distributions[plannedMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[plannedMinuteKey][lane].afterCount++
-		distributions[plannedMinuteKey][lane].plannedCount++
+		// Successful items: count in afterCount at scheduled time
+		scheduledMinuteKey := item.ScheduledTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
+		ensureDistribution(scheduledMinuteKey, lane)
+		distributions[scheduledMinuteKey][lane].afterCount++
 
 		if item.WasShifted {
-			distributions[plannedMinuteKey][lane].shiftedCount++
+			distributions[scheduledMinuteKey][lane].shiftedCount++
+		}
+
+		// Track items that used a pre-calculated plan
+		if item.WasPlanned {
+			distributions[scheduledMinuteKey][lane].plannedCount++
 		}
 	}
 
 	var records []domain.ThrottleResultRecord
 	for minuteKey, laneMap := range distributions {
-		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
+		slotTime, _ := time.Parse(time.RFC3339, minuteKey)
 		for lane, dist := range laneMap {
 			records = append(records, domain.ThrottleResultRecord{
-				RunID:         runID,
-				VirtualMinute: virtualMinute,
-				Lane:          lane,
-				Phase:         "planning",
-				BeforeCount:   dist.beforeCount,
-				AfterCount:    dist.afterCount,
-				ShiftedCount:  dist.shiftedCount,
-				PlannedCount:  dist.plannedCount,
+				RunID:        runID,
+				SlotTime:     slotTime,
+				Lane:         lane,
+				Phase:        "commit",
+				BeforeCount:  dist.beforeCount,
+				AfterCount:   dist.afterCount,
+				ShiftedCount: dist.shiftedCount,
+				PlannedCount: dist.plannedCount,
+				SkippedCount: dist.skippedCount,
+				FailedCount:  dist.failedCount,
 			})
 		}
 	}
@@ -290,55 +363,22 @@ func (h *ThrottleHandler) buildPlanningResultRecords(runID string, result *plan.
 	return records
 }
 
-func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttle.Response) []domain.ThrottleResultRecord {
-	distributions := make(map[string]map[string]*minuteDistribution)
+func (h *ThrottleHandler) buildSmoothingTargetRecords(runID string, smoothingTargets map[string]int) []domain.SmoothingTargetRecord {
+	if len(smoothingTargets) == 0 {
+		return nil
+	}
 
-	for _, item := range result.Results {
-		if item.Skipped {
+	records := make([]domain.SmoothingTargetRecord, 0, len(smoothingTargets))
+	for minuteKey, target := range smoothingTargets {
+		slotTime, err := time.Parse(time.RFC3339, minuteKey)
+		if err != nil {
 			continue
 		}
-
-		lane := item.Lane.String()
-		originalMinuteKey := item.OriginalTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-		scheduledMinuteKey := item.ScheduledTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-
-		if distributions[originalMinuteKey] == nil {
-			distributions[originalMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[originalMinuteKey][lane] == nil {
-			distributions[originalMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[originalMinuteKey][lane].beforeCount++
-
-		if distributions[scheduledMinuteKey] == nil {
-			distributions[scheduledMinuteKey] = make(map[string]*minuteDistribution)
-		}
-		if distributions[scheduledMinuteKey][lane] == nil {
-			distributions[scheduledMinuteKey][lane] = &minuteDistribution{}
-		}
-		distributions[scheduledMinuteKey][lane].afterCount++
-
-		if item.WasShifted {
-			distributions[scheduledMinuteKey][lane].shiftedCount++
-		}
+		records = append(records, domain.SmoothingTargetRecord{
+			RunID:       runID,
+			SlotTime:    slotTime,
+			TargetCount: target,
+		})
 	}
-
-	var records []domain.ThrottleResultRecord
-	for minuteKey, laneMap := range distributions {
-		virtualMinute, _ := time.Parse(time.RFC3339, minuteKey)
-		for lane, dist := range laneMap {
-			records = append(records, domain.ThrottleResultRecord{
-				RunID:         runID,
-				VirtualMinute: virtualMinute,
-				Lane:          lane,
-				Phase:         "commit",
-				BeforeCount:   dist.beforeCount,
-				AfterCount:    dist.afterCount,
-				ShiftedCount:  dist.shiftedCount,
-				PlannedCount:  0,
-			})
-		}
-	}
-
 	return records
 }

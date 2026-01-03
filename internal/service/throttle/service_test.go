@@ -23,7 +23,7 @@ func createTestService(
 ) *Service {
 	laneClassifier := lane.NewClassifier()
 	slotCounter := slot.NewCounter(throttleRepo)
-	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute, nil)
+	slotCalculator := slot.NewCalculator(slotCounter, requestCapPerMinute)
 	return NewService(remindClient, tq, throttleRepo, laneClassifier, slotCalculator, nil)
 }
 
@@ -131,7 +131,7 @@ func TestProcessReminds_Success(t *testing.T) {
 		})
 
 	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), "remind-1", true).
+		UpdateThrottled(gomock.Any(), "remind-1", true, "").
 		Return(nil)
 
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
@@ -266,7 +266,7 @@ func TestProcessReminds_UpdateThrottledError(t *testing.T) {
 
 	updateErr := errors.New("update failed")
 	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), "remind-1", true).
+		UpdateThrottled(gomock.Any(), "remind-1", true, "").
 		Return(updateErr).
 		Times(3)
 
@@ -385,7 +385,7 @@ func TestProcessReminds_NilTaskQueue(t *testing.T) {
 		}, nil)
 
 	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), "remind-1", true).
+		UpdateThrottled(gomock.Any(), "remind-1", true, "").
 		Return(nil)
 
 	svc := createTestService(mockRemindRepo, nil, nil, 60)
@@ -445,7 +445,7 @@ func TestProcessReminds_FilterThrottled(t *testing.T) {
 		Return(&taskqueue.TaskResponse{Name: "task-2"}, nil)
 
 	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), "remind-2", true).
+		UpdateThrottled(gomock.Any(), "remind-2", true, "").
 		Return(nil)
 
 	svc := createTestService(mockRemindRepo, mockTaskQueue, nil, 60)
@@ -523,7 +523,7 @@ func TestProcessReminds_MultipleRemindsWithClassification(t *testing.T) {
 		Times(4)
 
 	mockRemindRepo.EXPECT().
-		UpdateThrottled(gomock.Any(), gomock.Any(), true).
+		UpdateThrottled(gomock.Any(), gomock.Any(), true, "").
 		Return(nil).
 		Times(4)
 
@@ -579,10 +579,10 @@ func TestProcessReminds_RetrySuccessOnSecondAttempt(t *testing.T) {
 	updateErr := errors.New("temporary error")
 	gomock.InOrder(
 		mockRemindRepo.EXPECT().
-			UpdateThrottled(gomock.Any(), "remind-1", true).
+			UpdateThrottled(gomock.Any(), "remind-1", true, "").
 			Return(updateErr),
 		mockRemindRepo.EXPECT().
-			UpdateThrottled(gomock.Any(), "remind-1", true).
+			UpdateThrottled(gomock.Any(), "remind-1", true, "").
 			Return(nil),
 	)
 

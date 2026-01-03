@@ -115,14 +115,13 @@ export default function (data) {
     const windowMinutes = config.confirmWindowMinutes;
 
     const virtualFrom = addMinutes(virtualStart, iteration * windowMinutes);
-    const virtualTo = addMinutes(virtualFrom, windowMinutes);
 
     if (virtualFrom >= virtualEnd) {
         console.log(`Iteration ${iteration}: Past virtual end time, skipping`);
         return;
     }
 
-    const url = `${config.throttleUrl}/api/v1/throttle/batch?from=${formatRFC3339(virtualFrom)}&to=${formatRFC3339(virtualTo)}`;
+    const url = `${config.throttleUrl}/api/v1/throttle/batch?from=${formatRFC3339(virtualFrom)}`;
     const startTime = Date.now();
 
     const res = http.post(url, null, {
@@ -162,6 +161,7 @@ export default function (data) {
             packetsSuccess.add(succeeded);
             packetsFailed.add(failed);
 
+            const virtualTo = addMinutes(virtualFrom, windowMinutes);
             const timeWindow = `${virtualFrom.toISOString().substring(11, 16)}-${virtualTo.toISOString().substring(11, 16)}`;
             console.log(
                 `[${timeWindow}] processed=${processed}, success=${succeeded}, failed=${failed}`,

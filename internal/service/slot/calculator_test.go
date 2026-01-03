@@ -9,6 +9,8 @@ import (
 	"github.com/KasumiMercury/primind-notification-throttling/internal/domain"
 )
 
+// Note: domain import is still needed for MinuteKey function
+
 // mockCounter is a simple mock implementation of Counter for testing.
 type mockCounter struct {
 	counts map[string]int
@@ -38,10 +40,10 @@ func (m *mockCounter) setError(err error) {
 
 func TestCalculator_FindSlot_NoCapConfigured(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 0, nil) // cap = 0 means no cap
+	calc := NewCalculator(mock, 0) // cap = 0 means no cap
 
 	originalTime := time.Now().Truncate(time.Minute)
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 300, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 300)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -53,14 +55,14 @@ func TestCalculator_FindSlot_NoCapConfigured(t *testing.T) {
 
 func TestCalculator_FindSlot_StrictLane_UnderCap(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil) // cap = 10
+	calc := NewCalculator(mock, 10) // cap = 10
 
 	originalTime := time.Now().Truncate(time.Minute)
 	minuteKey := domain.MinuteKey(originalTime)
 	mock.setCount(minuteKey, 5) // Under cap
 
 	// Strict lane with 2 min window (120 seconds)
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 120, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 120)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -72,7 +74,7 @@ func TestCalculator_FindSlot_StrictLane_UnderCap(t *testing.T) {
 
 func TestCalculator_FindSlot_StrictLane_CapExceeded_ShiftsWithinWindow(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil) // cap = 10
+	calc := NewCalculator(mock, 10) // cap = 10
 
 	originalTime := time.Now().Truncate(time.Minute)
 	originalKey := domain.MinuteKey(originalTime)
@@ -85,7 +87,7 @@ func TestCalculator_FindSlot_StrictLane_CapExceeded_ShiftsWithinWindow(t *testin
 	mock.setCount(plusTwoKey, 10)
 
 	// Strict lane with 2 min window (120 seconds)
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 120, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 120)
 
 	expectedTime := originalTime.Add(time.Minute)
 	if !got.Equal(expectedTime) {
@@ -98,7 +100,7 @@ func TestCalculator_FindSlot_StrictLane_CapExceeded_ShiftsWithinWindow(t *testin
 
 func TestCalculator_FindSlot_StrictLane_CapExceeded_NoSlotAvailable(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil) // cap = 10
+	calc := NewCalculator(mock, 10) // cap = 10
 
 	originalTime := time.Now().Truncate(time.Minute)
 	originalKey := domain.MinuteKey(originalTime)
@@ -111,7 +113,7 @@ func TestCalculator_FindSlot_StrictLane_CapExceeded_NoSlotAvailable(t *testing.T
 	mock.setCount(plusTwoKey, 10)
 
 	// Strict lane with 2 min window (120 seconds)
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 120, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 120)
 
 	// Should return original time when no slot available
 	if !got.Equal(originalTime) {
@@ -124,14 +126,14 @@ func TestCalculator_FindSlot_StrictLane_CapExceeded_NoSlotAvailable(t *testing.T
 
 func TestCalculator_FindSlot_StrictLane_NoSlideWindow(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 	minuteKey := domain.MinuteKey(originalTime)
 	mock.setCount(minuteKey, 10) // At cap
 
 	// Slide window = 0 means no shifting allowed
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 0, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 0)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -144,11 +146,11 @@ func TestCalculator_FindSlot_StrictLane_NoSlideWindow(t *testing.T) {
 func TestCalculator_FindSlot_StrictLane_Error_ReturnsOriginal(t *testing.T) {
 	mock := newMockCounter()
 	mock.setError(errors.New("connection error"))
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 120, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 120)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -160,13 +162,13 @@ func TestCalculator_FindSlot_StrictLane_Error_ReturnsOriginal(t *testing.T) {
 
 func TestCalculator_FindSlot_LooseLane_UnderCap(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 	minuteKey := domain.MinuteKey(originalTime)
 	mock.setCount(minuteKey, 5)
 
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 300, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 300)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -178,7 +180,7 @@ func TestCalculator_FindSlot_LooseLane_UnderCap(t *testing.T) {
 
 func TestCalculator_FindSlot_LooseLane_CapExceeded_ShiftsWithinWindow(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 	originalKey := domain.MinuteKey(originalTime)
@@ -193,7 +195,7 @@ func TestCalculator_FindSlot_LooseLane_CapExceeded_ShiftsWithinWindow(t *testing
 	mock.setCount(plusThreeKey, 10)
 
 	// Slide window of 300 seconds = 5 minutes
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 300, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 300)
 
 	expectedTime := originalTime.Add(2 * time.Minute)
 	if !got.Equal(expectedTime) {
@@ -206,7 +208,7 @@ func TestCalculator_FindSlot_LooseLane_CapExceeded_ShiftsWithinWindow(t *testing
 
 func TestCalculator_FindSlot_LooseLane_CapExceeded_NoSlotInWindow(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 
@@ -217,7 +219,7 @@ func TestCalculator_FindSlot_LooseLane_CapExceeded_NoSlotInWindow(t *testing.T) 
 	}
 
 	// Slide window of 180 seconds = 3 minutes
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 180, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 180)
 
 	// Should return original time when no slot available within window
 	if !got.Equal(originalTime) {
@@ -230,14 +232,14 @@ func TestCalculator_FindSlot_LooseLane_CapExceeded_NoSlotInWindow(t *testing.T) 
 
 func TestCalculator_FindSlot_LooseLane_NoSlideWindow(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 	minuteKey := domain.MinuteKey(originalTime)
 	mock.setCount(minuteKey, 10) // At cap
 
 	// Slide window = 0 means no shifting allowed
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 0, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 0)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -250,11 +252,11 @@ func TestCalculator_FindSlot_LooseLane_NoSlideWindow(t *testing.T) {
 func TestCalculator_FindSlot_LooseLane_Error_ReturnsOriginal(t *testing.T) {
 	mock := newMockCounter()
 	mock.setError(errors.New("connection error"))
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 300, domain.LaneLoose)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 300)
 
 	if !got.Equal(originalTime) {
 		t.Errorf("FindSlot() time = %v, want %v", got, originalTime)
@@ -267,7 +269,7 @@ func TestCalculator_FindSlot_LooseLane_Error_ReturnsOriginal(t *testing.T) {
 // TestCalculator_UnifiedBehavior verifies that both lanes use slideWindowSeconds
 func TestCalculator_UnifiedBehavior(t *testing.T) {
 	mock := newMockCounter()
-	calc := NewCalculator(mock, 10, nil)
+	calc := NewCalculator(mock, 10)
 
 	originalTime := time.Now().Truncate(time.Minute)
 	originalKey := domain.MinuteKey(originalTime)
@@ -282,7 +284,7 @@ func TestCalculator_UnifiedBehavior(t *testing.T) {
 	mock.setCount(plusThreeKey, 5)
 
 	// Even strict lane should shift to +3 if slideWindowSeconds allows it
-	got, shifted := calc.FindSlot(context.Background(), originalTime, 300, domain.LaneStrict)
+	got, shifted := calc.FindSlot(context.Background(), originalTime, 300)
 
 	expectedTime := originalTime.Add(3 * time.Minute)
 	if !got.Equal(expectedTime) {

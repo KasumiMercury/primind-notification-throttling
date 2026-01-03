@@ -140,21 +140,25 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 		}
 
 		// Calculate scheduled time
-		scheduledTime, wasShifted, err := s.calculateScheduledTime(ctx, remind, classifiedLane)
+		schedResult, err := s.calculateScheduledTime(ctx, remind, classifiedLane)
 		if err != nil {
 			slog.ErrorContext(ctx, "failed to calculate scheduled time",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
 			)
 			// Use original time as fallback
-			scheduledTime = remind.Time
-			wasShifted = false
+			schedResult = scheduleResult{
+				ScheduledTime: remind.Time,
+				WasShifted:    false,
+			}
 		}
 
-		result.ScheduledTime = scheduledTime
-		result.WasShifted = wasShifted
+		result.ScheduledTime = schedResult.ScheduledTime
+		result.PlannedTime = schedResult.PlannedTime
+		result.WasPlanned = schedResult.WasPlanned
+		result.WasShifted = schedResult.WasShifted
 
-		if wasShifted {
+		if schedResult.WasShifted {
 			shiftedCount++
 			if s.throttleMetrics != nil {
 				s.throttleMetrics.RecordPacketShifted(ctx, "commit", classifiedLane.String())
@@ -162,13 +166,13 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 			slog.InfoContext(ctx, "reminder shifted",
 				slog.String("remind_id", remind.ID),
 				slog.Time("original_time", remind.Time),
-				slog.Time("scheduled_time", scheduledTime),
-				slog.Duration("shift", scheduledTime.Sub(remind.Time)),
+				slog.Time("scheduled_time", schedResult.ScheduledTime),
+				slog.Duration("shift", schedResult.ScheduledTime.Sub(remind.Time)),
 			)
 		}
 
 		// Register to task queue with the scheduled time
-		if err := s.registerToQueueWithTime(ctx, remind, fcmTokens, scheduledTime); err != nil {
+		if err := s.registerToQueueWithTime(ctx, remind, fcmTokens, schedResult.ScheduledTime); err != nil {
 			slog.ErrorContext(ctx, "failed to register to queue",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
@@ -192,7 +196,7 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 
 		// Commit packet to Redis
 		if s.throttleRepo != nil {
-			packet := domain.NewPacket(remind.ID, remind.Time, scheduledTime, classifiedLane)
+			packet := domain.NewPacket(remind.ID, remind.Time, schedResult.ScheduledTime, classifiedLane)
 			if err := s.throttleRepo.SaveCommittedPacket(ctx, packet); err != nil {
 				slog.WarnContext(ctx, "failed to save committed packet",
 					slog.String("remind_id", remind.ID),
@@ -202,7 +206,7 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 			}
 
 			// Increment packet count for the scheduled minute
-			minuteKey := domain.MinuteKey(scheduledTime)
+			minuteKey := domain.MinuteKey(schedResult.ScheduledTime)
 			if err := s.throttleRepo.IncrementPacketCount(ctx, minuteKey, 1); err != nil {
 				slog.WarnContext(ctx, "failed to increment packet count",
 					slog.String("remind_id", remind.ID),
@@ -214,7 +218,7 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 		}
 
 		// Update throttled flag in time-mgmt
-		if err := s.updateThrottledWithRetry(ctx, remind.ID, true); err != nil {
+		if err := s.updateThrottledWithRetry(ctx, remind.ID, true, runID); err != nil {
 			slog.ErrorContext(ctx, "failed to update throttled flag",
 				slog.String("remind_id", remind.ID),
 				slog.String("error", err.Error()),
@@ -253,15 +257,25 @@ func (s *Service) ProcessReminds(ctx context.Context, start, end time.Time, runI
 	}, nil
 }
 
+type scheduleResult struct {
+	ScheduledTime time.Time
+	PlannedTime   time.Time
+	WasPlanned    bool
+	WasShifted    bool
+}
+
 func (s *Service) calculateScheduledTime(
 	ctx context.Context,
 	remind timemgmt.RemindResponse,
 	classifiedLane domain.Lane,
-) (time.Time, bool, error) {
+) (scheduleResult, error) {
 	originalTime := remind.Time
 
 	if s.throttleRepo == nil {
-		return originalTime, false, nil
+		return scheduleResult{
+			ScheduledTime: originalTime,
+			WasShifted:    false,
+		}, nil
 	}
 
 	// Check if there's a planned time from the planning phase
@@ -275,21 +289,28 @@ func (s *Service) calculateScheduledTime(
 			slog.Time("planned_time", plannedPacket.PlannedTime),
 			slog.Bool("was_shifted", wasShifted),
 		)
-		return plannedPacket.PlannedTime, wasShifted, nil
+		return scheduleResult{
+			ScheduledTime: plannedPacket.PlannedTime,
+			PlannedTime:   plannedPacket.PlannedTime,
+			WasPlanned:    true,
+			WasShifted:    wasShifted,
+		}, nil
 	}
 
-	// No plan found
+	// No plan found - calculate on-the-fly
 	scheduledTime, wasShifted := s.slotCalculator.FindSlot(
 		ctx,
 		originalTime,
 		int(remind.SlideWindowWidth),
-		classifiedLane,
 	)
 
-	return scheduledTime, wasShifted, nil
+	return scheduleResult{
+		ScheduledTime: scheduledTime,
+		WasShifted:    wasShifted,
+	}, nil
 }
 
-func (s *Service) updateThrottledWithRetry(ctx context.Context, remindID string, throttled bool) error {
+func (s *Service) updateThrottledWithRetry(ctx context.Context, remindID string, throttled bool, runID string) error {
 	const maxRetries = 3
 
 	var lastErr error
@@ -299,6 +320,7 @@ func (s *Service) updateThrottledWithRetry(ctx context.Context, remindID string,
 			slog.DebugContext(ctx, "retrying throttled flag update",
 				slog.String("remind_id", remindID),
 				slog.Bool("throttled", throttled),
+				slog.String("run_id", runID),
 				slog.Int("attempt", attempt+1),
 				slog.Duration("backoff", backoff),
 			)
@@ -310,7 +332,7 @@ func (s *Service) updateThrottledWithRetry(ctx context.Context, remindID string,
 			}
 		}
 
-		if err := s.remindTimeClient.UpdateThrottled(ctx, remindID, throttled); err == nil {
+		if err := s.remindTimeClient.UpdateThrottled(ctx, remindID, throttled, runID); err == nil {
 			return nil
 		} else {
 			lastErr = err

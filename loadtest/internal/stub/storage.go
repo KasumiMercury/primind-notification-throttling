@@ -1,6 +1,8 @@
 package stub
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -96,7 +98,7 @@ func (s *BucketStorage) generateRemindsForBucket(runID string, bucket *Bucket, s
 			continue
 		}
 
-		id := generateRemindID(runID, bucket.StartTime, i)
+		id := generateRemindID(runID, bucket.StartTime, bucket.SlideWindowWidth, i)
 
 		throttled := false
 		if throttledMap, exists := s.throttledIDs[runID]; exists {
@@ -137,6 +139,9 @@ func (s *BucketStorage) SetThrottled(runID, remindID string, throttled bool) {
 	s.throttledIDs[runID][remindID] = throttled
 }
 
-func generateRemindID(runID string, bucketStart time.Time, index int) string {
-	return fmt.Sprintf("%s-%s-%05d", runID, bucketStart.Format("20060102150405"), index)
+func generateRemindID(runID string, bucketStart time.Time, slideWindowWidth int32, index int) string {
+	input := fmt.Sprintf("%s-%s-%d-%d", runID, bucketStart.Format("20060102150405"), slideWindowWidth, index)
+	hash := sha256.Sum256([]byte(input))
+	hashStr := hex.EncodeToString(hash[:8])
+	return fmt.Sprintf("%s-%s-%s", runID, bucketStart.Format("20060102150405"), hashStr)
 }

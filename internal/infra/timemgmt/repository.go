@@ -9,5 +9,5 @@ import (
 
 type RemindTimeRepository interface {
 	GetRemindsByTimeRange(ctx context.Context, start, end time.Time, runID string) (*RemindsResponse, error)
-	UpdateThrottled(ctx context.Context, id string, throttled bool) error
+	UpdateThrottled(ctx context.Context, id string, throttled bool, runID string) error
 }
