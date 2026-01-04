@@ -13,8 +13,9 @@ const (
 type SlidingStrategy string
 
 const (
-	SlidingStrategyGreedy  SlidingStrategy = "greedy"
-	SlidingStrategyBestFit SlidingStrategy = "bestfit"
+	SlidingStrategyGreedy   SlidingStrategy = "greedy"
+	SlidingStrategyBestFit  SlidingStrategy = "bestfit"
+	SlidingStrategyPriority SlidingStrategy = "priority"
 )
 
 type SlidingConfig struct {
@@ -27,7 +28,7 @@ func LoadSlidingConfig() *SlidingConfig {
 		strategy = defaultSlidingStrategy
 	}
 
-	if strategy != SlidingStrategyGreedy && strategy != SlidingStrategyBestFit {
+	if strategy != SlidingStrategyGreedy && strategy != SlidingStrategyBestFit && strategy != SlidingStrategyPriority {
 		strategy = defaultSlidingStrategy
 	}
 
