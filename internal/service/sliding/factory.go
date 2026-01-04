@@ -15,6 +15,9 @@ func NewDiscovery(cfg *config.SlidingConfig) Discovery {
 	}
 
 	switch cfg.Strategy {
+	case config.SlidingStrategyPriority:
+		slog.Info("using priority sliding discovery")
+		return NewPriorityDiscovery()
 	case config.SlidingStrategyGreedy:
 		slog.Info("using greedy sliding discovery")
 		return NewGreedyDiscovery()

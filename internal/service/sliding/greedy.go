@@ -157,3 +157,16 @@ func (g *GreedyDiscovery) findSlot(
 func (g *GreedyDiscovery) UpdateContext(slideCtx *SlideContext, minuteKey string) {
 	UpdateContext(slideCtx, minuteKey)
 }
+
+func (g *GreedyDiscovery) SupportsBatch() bool {
+	return false
+}
+
+func (g *GreedyDiscovery) PrepareSlots(
+	ctx context.Context,
+	looseItems []*PriorityItem,
+	strictItems []*PriorityItem,
+	slideCtx *SlideContext,
+) error {
+	return nil
+}

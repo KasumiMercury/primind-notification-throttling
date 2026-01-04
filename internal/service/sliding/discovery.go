@@ -42,6 +42,17 @@ type Discovery interface {
 	// UpdateContext updates the slide context after a notification is assigned.
 	// This allows the discovery to track state between assignments.
 	UpdateContext(slideCtx *SlideContext, minuteKey string)
+
+	// SupportsBatch returns true if this discovery supports batch processing.
+	SupportsBatch() bool
+
+	// PrepareSlots performs batch allocation for all notifications.
+	PrepareSlots(
+		ctx context.Context,
+		looseItems []*PriorityItem,
+		strictItems []*PriorityItem,
+		slideCtx *SlideContext,
+	) error
 }
 
 // UpdateContext is a helper function to update the context after assignment.
