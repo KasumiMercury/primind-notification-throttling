@@ -155,6 +155,22 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 		slog.Int("strict_count", len(strictNotifications)),
 	)
 
+	if s.slideDiscovery != nil && s.slideDiscovery.SupportsBatch() {
+		// Batch processing
+		looseItems, strictItems := s.collectPriorityItems(looseNotifications, strictNotifications)
+
+		if err := s.slideDiscovery.PrepareSlots(ctx, looseItems, strictItems, slideCtx); err != nil {
+			slog.WarnContext(ctx, "failed to prepare batch slots, falling back to individual processing",
+				slog.String("error", err.Error()),
+			)
+		} else {
+			slog.DebugContext(ctx, "batch slots prepared",
+				slog.Int("loose_items", len(looseItems)),
+				slog.Int("strict_items", len(strictItems)),
+			)
+		}
+	}
+
 	// Process Loose notifications
 	for _, merged := range looseNotifications {
 		var result ResultItem
@@ -687,4 +703,26 @@ func (s *Service) separateByLane(notifications []MergedNotification) (loose, str
 		}
 	}
 	return
+}
+
+func (s *Service) collectPriorityItems(
+	looseNotifications []MergedNotification,
+	strictNotifications []MergedNotification,
+) ([]*sliding.PriorityItem, []*sliding.PriorityItem) {
+	looseItems := make([]*sliding.PriorityItem, 0, len(looseNotifications))
+	strictItems := make([]*sliding.PriorityItem, 0, len(strictNotifications))
+
+	for _, n := range looseNotifications {
+		if n.IsNew {
+			looseItems = append(looseItems, sliding.NewPriorityItem(n.Remind, domain.LaneLoose))
+		}
+	}
+
+	for _, n := range strictNotifications {
+		if n.IsNew {
+			strictItems = append(strictItems, sliding.NewPriorityItem(n.Remind, domain.LaneStrict))
+		}
+	}
+
+	return looseItems, strictItems
 }
