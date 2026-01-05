@@ -22,5 +22,8 @@
 ## 依存
 
 - Redis v8
-- Remind Time Management
+- [Remind Time Managemnt](https://github.com/KasumiMercury/primind-remind-time-mgmt)
 - InfluxDB / BigQuery
+
+## 関連リポジトリ
+[KasumiMercury/primind-root](https://github.com/KasumiMercury/primind-root)
