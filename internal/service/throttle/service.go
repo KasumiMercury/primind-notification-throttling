@@ -373,6 +373,7 @@ func (s *Service) registerToQueueWithTime(
 		TaskType:   remind.TaskType,
 		FCMTokens:  fcmTokens,
 		ScheduleAt: scheduleAt,
+		Color:      remind.Color,
 	}
 
 	resp, err := s.taskQueue.RegisterNotification(ctx, task)

@@ -29,6 +29,7 @@ type NotificationRequest struct {
 	Tokens        []string               `protobuf:"bytes,1,rep,name=tokens,proto3" json:"tokens,omitempty"`
 	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	TaskType      v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	Color         string                 `protobuf:"bytes,4,opt,name=color,proto3" json:"color,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -82,6 +83,13 @@ func (x *NotificationRequest) GetTaskType() v1.TaskType {
 		return x.TaskType
 	}
 	return v1.TaskType(0)
+}
+
+func (x *NotificationRequest) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
 }
 
 // TokenResult represents the result for a single FCM token
@@ -287,11 +295,12 @@ var File_notify_v1_notify_proto protoreflect.FileDescriptor
 
 const file_notify_v1_notify_proto_rawDesc = "" +
 	"\n" +
-	"\x16notify/v1/notify.proto\x12\tnotify.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16common/v1/common.proto\"\x9c\x01\n" +
+	"\x16notify/v1/notify.proto\x12\tnotify.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16common/v1/common.proto\"\xb2\x01\n" +
 	"\x13NotificationRequest\x12 \n" +
 	"\x06tokens\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x01R\x06tokens\x12!\n" +
 	"\atask_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12@\n" +
-	"\ttask_type\x18\x03 \x01(\x0e2\x13.common.v1.TaskTypeB\x0e\xbaH\v\x82\x01\b\x18\x01\x18\x02\x18\x03\x18\x04R\btaskType\"r\n" +
+	"\ttask_type\x18\x03 \x01(\x0e2\x13.common.v1.TaskTypeB\x0e\xbaH\v\x82\x01\b\x18\x01\x18\x02\x18\x03\x18\x04R\btaskType\x12\x14\n" +
+	"\x05color\x18\x04 \x01(\tR\x05color\"r\n" +
 	"\vTokenResult\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x1d\n" +
