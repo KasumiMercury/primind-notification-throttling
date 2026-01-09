@@ -204,3 +204,16 @@ func (b *BestFitDiscovery) findSlot(
 func (b *BestFitDiscovery) UpdateContext(slideCtx *SlideContext, minuteKey string) {
 	UpdateContext(slideCtx, minuteKey)
 }
+
+func (b *BestFitDiscovery) SupportsBatch() bool {
+	return false
+}
+
+func (b *BestFitDiscovery) PrepareSlots(
+	ctx context.Context,
+	looseItems []*PriorityItem,
+	strictItems []*PriorityItem,
+	slideCtx *SlideContext,
+) error {
+	return nil
+}
