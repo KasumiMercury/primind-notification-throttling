@@ -48,6 +48,7 @@ func (c *PrimindTasksClient) RegisterNotification(ctx context.Context, task *Not
 		Tokens:   task.FCMTokens,
 		TaskId:   task.TaskID,
 		TaskType: stringToTaskType(task.TaskType),
+		Color:    task.Color,
 	}
 
 	payload, err := pjson.Marshal(notifyReq)

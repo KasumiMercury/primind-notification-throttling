@@ -10,6 +10,7 @@ type NotificationTask struct {
 	FCMTokens []string `json:"tokens"`
 	TaskID    string   `json:"task_id"`
 	TaskType  string   `json:"task_type"`
+	Color     string   `json:"color"` // hex color code e.g. "#EF4444"
 }
 
 type TaskResponse struct {
