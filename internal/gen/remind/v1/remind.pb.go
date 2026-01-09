@@ -85,6 +85,7 @@ type CreateRemindRequest struct {
 	Devices       []*Device                `protobuf:"bytes,3,rep,name=devices,proto3" json:"devices,omitempty"`
 	TaskId        string                   `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	TaskType      v1.TaskType              `protobuf:"varint,5,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	Color         string                   `protobuf:"bytes,6,opt,name=color,proto3" json:"color,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -154,6 +155,13 @@ func (x *CreateRemindRequest) GetTaskType() v1.TaskType {
 	return v1.TaskType(0)
 }
 
+func (x *CreateRemindRequest) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
+}
+
 // CancelRemindRequest is sent from central-backend via primind-tasks to time-mgmt
 type CancelRemindRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -220,6 +228,7 @@ type Remind struct {
 	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	SlideWindowWidth int32                  `protobuf:"varint,10,opt,name=slide_window_width,json=slideWindowWidth,proto3" json:"slide_window_width,omitempty"` // slide window width in seconds for throttling (range: 60-1800)
+	Color            string                 `protobuf:"bytes,11,opt,name=color,proto3" json:"color,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -322,6 +331,13 @@ func (x *Remind) GetSlideWindowWidth() int32 {
 		return x.SlideWindowWidth
 	}
 	return 0
+}
+
+func (x *Remind) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
 }
 
 // RemindsResponse is the response containing a list of reminds
@@ -535,16 +551,17 @@ const file_remind_v1_remind_proto_rawDesc = "" +
 	"\x16remind/v1/remind.proto\x12\tremind.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16common/v1/common.proto\"U\n" +
 	"\x06Device\x12%\n" +
 	"\tdevice_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\bdeviceId\x12$\n" +
-	"\tfcm_token\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bfcmToken\"\x90\x02\n" +
+	"\tfcm_token\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bfcmToken\"\xa6\x02\n" +
 	"\x13CreateRemindRequest\x12:\n" +
 	"\x05times\x18\x01 \x03(\v2\x1a.google.protobuf.TimestampB\b\xbaH\x05\x92\x01\x02\b\x01R\x05times\x12!\n" +
 	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\x125\n" +
 	"\adevices\x18\x03 \x03(\v2\x11.remind.v1.DeviceB\b\xbaH\x05\x92\x01\x02\b\x01R\adevices\x12!\n" +
 	"\atask_id\x18\x04 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12@\n" +
-	"\ttask_type\x18\x05 \x01(\x0e2\x13.common.v1.TaskTypeB\x0e\xbaH\v\x82\x01\b\x18\x01\x18\x02\x18\x03\x18\x04R\btaskType\"[\n" +
+	"\ttask_type\x18\x05 \x01(\x0e2\x13.common.v1.TaskTypeB\x0e\xbaH\v\x82\x01\b\x18\x01\x18\x02\x18\x03\x18\x04R\btaskType\x12\x14\n" +
+	"\x05color\x18\x06 \x01(\tR\x05color\"[\n" +
 	"\x13CancelRemindRequest\x12!\n" +
 	"\atask_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06taskId\x12!\n" +
-	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\"\x9b\x03\n" +
+	"\auser_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x06userId\"\xb1\x03\n" +
 	"\x06Remind\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x17\n" +
@@ -558,7 +575,8 @@ const file_remind_v1_remind_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12,\n" +
 	"\x12slide_window_width\x18\n" +
-	" \x01(\x05R\x10slideWindowWidth\"T\n" +
+	" \x01(\x05R\x10slideWindowWidth\x12\x14\n" +
+	"\x05color\x18\v \x01(\tR\x05color\"T\n" +
 	"\x0fRemindsResponse\x12+\n" +
 	"\areminds\x18\x01 \x03(\v2\x11.remind.v1.RemindR\areminds\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\";\n" +

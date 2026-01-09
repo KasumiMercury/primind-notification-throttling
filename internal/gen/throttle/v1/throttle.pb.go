@@ -29,12 +29,8 @@ type Lane int32
 
 const (
 	Lane_LANE_UNSPECIFIED Lane = 0
-	// Strict lane: urgent, scheduled, or tasks with narrow slide windows (<=60s)
-	// These are never shifted and may temporarily exceed the cap
-	Lane_LANE_STRICT Lane = 1
-	// Loose lane: normal, low, or tasks with wider slide windows
-	// These can be shifted within their slide window when cap is exceeded
-	Lane_LANE_LOOSE Lane = 2
+	Lane_LANE_STRICT      Lane = 1
+	Lane_LANE_LOOSE       Lane = 2
 )
 
 // Enum value maps for Lane.
@@ -80,25 +76,19 @@ func (Lane) EnumDescriptor() ([]byte, []int) {
 
 // ThrottleResultItem represents the result for processing a single remind
 type ThrottleResultItem struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	RemindId  string                 `protobuf:"bytes,1,opt,name=remind_id,json=remindId,proto3" json:"remind_id,omitempty"`
-	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskType  v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
-	FcmTokens []string               `protobuf:"bytes,4,rep,name=fcm_tokens,json=fcmTokens,proto3" json:"fcm_tokens,omitempty"`
-	Success   bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
-	Error     string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
-	// Lane classification for throttling behavior
-	Lane Lane `protobuf:"varint,7,opt,name=lane,proto3,enum=throttle.v1.Lane" json:"lane,omitempty"`
-	// Original scheduled time before any shifting
-	OriginalTime *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=original_time,json=originalTime,proto3" json:"original_time,omitempty"`
-	// Actual scheduled time (may differ from original_time if shifted)
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RemindId      string                 `protobuf:"bytes,1,opt,name=remind_id,json=remindId,proto3" json:"remind_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskType      v1.TaskType            `protobuf:"varint,3,opt,name=task_type,json=taskType,proto3,enum=common.v1.TaskType" json:"task_type,omitempty"`
+	FcmTokens     []string               `protobuf:"bytes,4,rep,name=fcm_tokens,json=fcmTokens,proto3" json:"fcm_tokens,omitempty"`
+	Success       bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	Lane          Lane                   `protobuf:"varint,7,opt,name=lane,proto3,enum=throttle.v1.Lane" json:"lane,omitempty"`
+	OriginalTime  *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=original_time,json=originalTime,proto3" json:"original_time,omitempty"`
 	ScheduledTime *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=scheduled_time,json=scheduledTime,proto3" json:"scheduled_time,omitempty"`
-	// Whether the notification was shifted from its original time
-	WasShifted bool `protobuf:"varint,10,opt,name=was_shifted,json=wasShifted,proto3" json:"was_shifted,omitempty"`
-	// Whether this remind was skipped (not processed)
-	Skipped bool `protobuf:"varint,11,opt,name=skipped,proto3" json:"skipped,omitempty"`
-	// Reason for skipping (e.g., "no FCM tokens", "already committed")
-	SkipReason    string `protobuf:"bytes,12,opt,name=skip_reason,json=skipReason,proto3" json:"skip_reason,omitempty"`
+	WasShifted    bool                   `protobuf:"varint,10,opt,name=was_shifted,json=wasShifted,proto3" json:"was_shifted,omitempty"`
+	Skipped       bool                   `protobuf:"varint,11,opt,name=skipped,proto3" json:"skipped,omitempty"`
+	SkipReason    string                 `protobuf:"bytes,12,opt,name=skip_reason,json=skipReason,proto3" json:"skip_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -224,12 +214,10 @@ type ThrottleResponse struct {
 	SuccessCount   int32                  `protobuf:"varint,2,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
 	FailedCount    int32                  `protobuf:"varint,3,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
 	Results        []*ThrottleResultItem  `protobuf:"bytes,4,rep,name=results,proto3" json:"results,omitempty"`
-	// Number of reminds that were skipped
-	SkippedCount int32 `protobuf:"varint,5,opt,name=skipped_count,json=skippedCount,proto3" json:"skipped_count,omitempty"`
-	// Number of reminds that were shifted to a later time slot
-	ShiftedCount  int32 `protobuf:"varint,6,opt,name=shifted_count,json=shiftedCount,proto3" json:"shifted_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SkippedCount   int32                  `protobuf:"varint,5,opt,name=skipped_count,json=skippedCount,proto3" json:"skipped_count,omitempty"`
+	ShiftedCount   int32                  `protobuf:"varint,6,opt,name=shifted_count,json=shiftedCount,proto3" json:"shifted_count,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ThrottleResponse) Reset() {
