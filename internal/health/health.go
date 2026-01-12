@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"connectrpc.com/grpchealth"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
@@ -95,4 +96,31 @@ func (c *Checker) ReadyHandler() gin.HandlerFunc {
 
 		ctx.JSON(httpStatus, status)
 	}
+}
+
+// IsHealthy returns true if all dependencies are healthy.
+func (c *Checker) IsHealthy(ctx context.Context) bool {
+	return c.Check(ctx).Status == StatusHealthy
+}
+
+// GRPCChecker implements grpchealth.Checker interface for gRPC health checking protocol.
+type GRPCChecker struct {
+	checker *Checker
+}
+
+// NewGRPCChecker creates a new gRPC health checker wrapping the given Checker.
+func NewGRPCChecker(checker *Checker) *GRPCChecker {
+	return &GRPCChecker{checker: checker}
+}
+
+// Check implements grpchealth.Checker interface.
+func (g *GRPCChecker) Check(ctx context.Context, req *grpchealth.CheckRequest) (*grpchealth.CheckResponse, error) {
+	if g.checker.IsHealthy(ctx) {
+		return &grpchealth.CheckResponse{
+			Status: grpchealth.StatusServing,
+		}, nil
+	}
+	return &grpchealth.CheckResponse{
+		Status: grpchealth.StatusNotServing,
+	}, nil
 }

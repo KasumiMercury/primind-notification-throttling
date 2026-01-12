@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"connectrpc.com/grpchealth"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
@@ -213,6 +215,10 @@ func run() int {
 	r.GET("/health/ready", healthChecker.ReadyHandler())
 	r.GET("/health", healthChecker.ReadyHandler())
 
+	// gRPC Health Checking Protocol (grpc.health.v1.Health/Check)
+	grpcHealthChecker := health.NewGRPCChecker(healthChecker)
+	grpcHealthPath, grpcHealthHandler := grpchealth.NewHandler(grpcHealthChecker)
+
 	// API routes
 	v1 := r.Group("/api/v1")
 	{
@@ -221,10 +227,19 @@ func run() int {
 		v1.POST("/remind/cancel", remindCancelHandler.HandleRemindCancel)
 	}
 
+	// Create multiplexed handler for Gin + gRPC health
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasPrefix(req.URL.Path, grpcHealthPath) {
+			grpcHealthHandler.ServeHTTP(w, req)
+			return
+		}
+		r.ServeHTTP(w, req)
+	})
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: r,
+		Handler: handler,
 	}
 
 	// Start server in goroutine
