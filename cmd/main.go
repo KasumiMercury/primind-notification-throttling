@@ -16,6 +16,7 @@ import (
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
+	"github.com/KasumiMercury/primind-notification-throttling/internal/health"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/repository"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/throttlerecorder"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/infra/timemgmt"
@@ -189,7 +190,7 @@ func run() int {
 	// Setup router with observability middleware
 	r := gin.New()
 	r.Use(middleware.Gin(middleware.GinConfig{
-		SkipPaths:  []string{"/health", "/metrics"},
+		SkipPaths:  []string{"/health", "/health/live", "/health/ready", "/metrics"},
 		Module:     logging.Module("notification-throttling"),
 		Worker:     true,
 		TracerName: "github.com/KasumiMercury/primind-notification-throttling/internal/observability/middleware",
@@ -206,10 +207,11 @@ func run() int {
 	}))
 	r.Use(middleware.PanicRecoveryGin())
 
-	// Health check endpoint
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
-	})
+	// Health check endpoints
+	healthChecker := health.NewChecker(redisClient, Version)
+	r.GET("/health/live", healthChecker.LiveHandler())
+	r.GET("/health/ready", healthChecker.ReadyHandler())
+	r.GET("/health", healthChecker.ReadyHandler())
 
 	// API routes
 	v1 := r.Group("/api/v1")
