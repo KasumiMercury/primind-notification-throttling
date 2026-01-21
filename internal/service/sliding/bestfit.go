@@ -166,9 +166,14 @@ func (b *BestFitDiscovery) findSlot(
 		}
 	}
 
-	// Use best slot if it has MORE availability than original
-	// (This enables shifting toward smoothing targets even when original has space)
-	if bestTarget != nil && bestTarget.Available > originalAvailable {
+	// Shift when:
+	// 1. Best slot has more availability than original, OR
+	// 2. Original slot exceeds target (available <= 0) and best slot has capacity
+	// This enables shifting even when all slots have low availability due to smoothed targets.
+	originalOverTarget := originalAvailable <= 0
+	bestHasCapacity := bestTarget != nil && bestTarget.Available > 0
+
+	if bestTarget != nil && (bestTarget.Available > originalAvailable || (originalOverTarget && bestHasCapacity)) {
 		plannedTime := bestTime.Add(offset)
 
 		shifted := bestTarget.MinuteKey != originalKey

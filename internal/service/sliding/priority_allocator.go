@@ -61,12 +61,29 @@ func (a *PriorityAllocator) AllocateBatch(
 		return slots[i].MinuteTime.Before(slots[j].MinuteTime)
 	})
 
+	// Check if all slots have Available <= 0 (all at or over smoothing target)
+	// In this case, we fall back to hard cap allocation to allow some shifting
+	allSlotsAtTarget := true
+	for _, slot := range slots {
+		if slot.Available > 0 {
+			allSlotsAtTarget = false
+			break
+		}
+	}
+
 	assigned := make(map[string]bool)
 
 	for slotIdx := range slots {
 		slot := &slots[slotIdx]
 
-		if slot.Available <= 0 || slot.CurrentCount >= slideCtx.CapPerMinute {
+		// Hard cap check is always enforced
+		if slot.CurrentCount >= slideCtx.CapPerMinute {
+			continue
+		}
+
+		// Prefer slots with Available > 0
+		// But if all slots are at target (Available <= 0), allow any slot under hard cap
+		if slot.Available <= 0 && !allSlotsAtTarget {
 			continue
 		}
 

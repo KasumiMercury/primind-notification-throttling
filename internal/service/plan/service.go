@@ -633,19 +633,14 @@ func (s *Service) mergeWithPreviousPlans(
 }
 
 // organizeByMinuteFromMerged organizes merged notifications by minute key.
-// For previously-planned notifications, uses the PlannedTime minute.
-// For new notifications, uses the OriginalTime minute.
+// Always uses OriginalTime (Remind.Time) to get the raw input distribution.
+// This ensures the smoothing algorithm sees the original spike patterns,
+// not already-smoothed distributions from previous planning runs.
 func (s *Service) organizeByMinuteFromMerged(merged []MergedNotification) map[string]int {
 	countByMinute := make(map[string]int)
 	for _, m := range merged {
-		var key string
-		if m.PreviousPlan != nil {
-			// Use previous planned time for already-planned notifications
-			key = domain.MinuteKey(m.PreviousPlan.PlannedTime)
-		} else {
-			// Use original time for new notifications
-			key = domain.MinuteKey(m.Remind.Time)
-		}
+		// Always use OriginalTime to get raw input distribution
+		key := domain.MinuteKey(m.Remind.Time)
 		countByMinute[key]++
 	}
 	return countByMinute
@@ -768,16 +763,13 @@ func (s *Service) buildRadiusBatches(
 	lastMinute := end.Add(-time.Minute)
 
 	for _, n := range notifications {
-		// Determine the time to use for minute key
-		var t time.Time
-		if n.PreviousPlan != nil {
-			t = n.PreviousPlan.PlannedTime
-		} else {
-			t = n.Remind.Time
-		}
+		// Always use OriginalTime to get raw input distribution for optimization.
+		// This ensures the optimization algorithm sees the original spike patterns,
+		// not already-smoothed distributions from previous planning runs.
+		t := n.Remind.Time
 
 		// Clamp time to window bounds to ensure all notifications are included
-		// This handles notifications that were planned outside the current window
+		// This handles notifications that have original times outside the current window
 		if t.Before(start) {
 			t = start
 		} else if !t.Before(end) {

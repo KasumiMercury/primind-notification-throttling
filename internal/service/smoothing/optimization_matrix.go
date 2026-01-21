@@ -122,78 +122,55 @@ func estimateStepSize(n int, lambda float64) float64 {
 // - s[0] = startValue
 // - sum(s) = total
 // - s >= 0
+//
+// Uses proportional scaling to preserve the smooth shape produced by gradient descent,
+// rather than uniform offset which would preserve spiky differences.
 func projectConstraints(v []float64, startValue, total float64) []float64 {
 	n := len(v)
 	y := make([]float64, n)
 	copy(y, v)
 
 	y[0] = startValue
-
-	// Distribute sum constraint over indices 1..n-1
 	restTarget := total - startValue
-	sumRest := 0.0
-	for i := 1; i < n; i++ {
-		sumRest += y[i]
-	}
-	adjustment := (restTarget - sumRest) / float64(n-1)
-	for i := 1; i < n; i++ {
-		y[i] += adjustment
-	}
 
-	// Apply non-negativity and readjust sum (iterate a few times)
-	for i := range n {
-		if y[i] < 0 {
-			y[i] = 0
-		}
-	}
+	maxIter := 100
+	tolerance := 1e-6
 
-	for range 3 {
-		y[0] = startValue
-		restTarget = total - startValue
-
-		// Find positive elements in 1..n-1
-		sumPos := 0.0
-		countPos := 0
+	for range maxIter {
+		// Apply non-negativity constraint
 		for i := 1; i < n; i++ {
-			if y[i] > 0 {
-				sumPos += y[i]
-				countPos++
-			}
-		}
-
-		if countPos == 0 {
-			// All zeros, distribute evenly
-			for i := 1; i < n; i++ {
-				y[i] = restTarget / float64(n-1)
-			}
-			break
-		}
-
-		err := restTarget - sumPos
-		for i := 1; i < n; i++ {
-			if y[i] > 0 {
-				y[i] += err / float64(countPos)
-			}
-		}
-
-		for i := range n {
 			if y[i] < 0 {
 				y[i] = 0
 			}
 		}
+
+		// Calculate sum of rest elements
+		sumRest := 0.0
+		for i := 1; i < n; i++ {
+			sumRest += y[i]
+		}
+
+		// Check convergence
+		if math.Abs(sumRest-restTarget) < tolerance {
+			break
+		}
+
+		// Proportional scaling (preserves smooth shape)
+		if sumRest > 0 {
+			scale := restTarget / sumRest
+			for i := 1; i < n; i++ {
+				y[i] *= scale
+			}
+		} else {
+			// All zeros - distribute evenly
+			perSlot := restTarget / float64(n-1)
+			for i := 1; i < n; i++ {
+				y[i] = perSlot
+			}
+		}
 	}
 
-	// Final sum adjustment
-	y[0] = startValue
-	restTarget = total - startValue
-	sumRest = 0.0
-	for i := 1; i < n; i++ {
-		sumRest += y[i]
-	}
-	adjustment = (restTarget - sumRest) / float64(n-1)
-	for i := 1; i < n; i++ {
-		y[i] += adjustment
-	}
+	// Final non-negativity enforcement
 	for i := range n {
 		if y[i] < 0 {
 			y[i] = 0
