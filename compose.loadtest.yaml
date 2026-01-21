@@ -21,6 +21,8 @@ services:
             - INFLUXDB_BUCKET=throttle_results
             - INFLUXDB_TOKEN=loadtest-token
             - THROTTLE_RESULTS_FILL_ALL_MINUTES=true
+            - SMOOTHING_KERNEL_RADIUS=30
+            - SMOOTHING_LAMBDA=10.0
         depends_on:
             redis:
                 condition: service_healthy
