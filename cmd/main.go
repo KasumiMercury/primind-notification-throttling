@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
@@ -236,10 +238,10 @@ func run() int {
 		r.ServeHTTP(w, req)
 	})
 
-	// Create HTTP server
+	h2s := &http2.Server{}
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: handler,
+		Handler: h2c.NewHandler(handler, h2s),
 	}
 
 	// Start server in goroutine
