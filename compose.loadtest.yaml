@@ -4,8 +4,6 @@ services:
             context: .
             dockerfile: Dockerfile
             target: runner
-            args:
-                BUILD_PATH: "./cmd/"
         command: ["/main"]
         ports:
             - "8080:8080"
@@ -17,8 +15,7 @@ services:
             - PLANNING_WINDOW_MINUTES=30
             - LOG_LEVEL=info
             - OTEL_EXPORTER_OTLP_ENDPOINT=prometheus:9090
-            - OTEL_TRACES_EXPORTER=none
-            - OTEL_SERVICE_NAME=throttle-server-loadtest
+            - SERVICE_NAME=throttle-server-loadtest
             - INFLUXDB_URL=http://influxdb:8086
             - INFLUXDB_ORG=loadtest
             - INFLUXDB_BUCKET=throttle_results
