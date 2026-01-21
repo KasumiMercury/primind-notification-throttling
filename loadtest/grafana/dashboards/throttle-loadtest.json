@@ -176,6 +176,36 @@
                     {
                         "matcher": {
                             "id": "byName",
+                            "options": "input_count"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Input (Raw)"
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "blue",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "custom.lineStyle",
+                                "value": {
+                                    "dash": [5, 5],
+                                    "fill": "dash"
+                                }
+                            },
+                            {
+                                "id": "custom.lineWidth",
+                                "value": 2
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
                             "options": "slot_unix"
                         },
                         "properties": [
@@ -222,7 +252,7 @@
                         "type": "influxdb",
                         "uid": "influxdb"
                     },
-                    "query": "before_after = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> sum()\n\ntarget = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"smoothing_target\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"target_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> max()\n\nunion(tables: [before_after, target])\n  |> group()\n  |> pivot(rowKey: [\"slot\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with slot_unix: int(v: time(v: r.slot)) / 1000000}))\n  |> sort(columns: [\"slot_unix\"])",
+                    "query": "before_after = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"throttle_result\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"before_count\" or r._field == \"after_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> sum()\n\nsmoothing = from(bucket: \"throttle_results\")\n  |> range(start: 1970-01-01T00:00:00Z, stop: 2030-01-01T00:00:00Z)\n  |> filter(fn: (r) => r._measurement == \"smoothing_target\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r._field == \"target_count\" or r._field == \"input_count\")\n  |> group(columns: [\"slot\", \"_field\"])\n  |> last()\n\nunion(tables: [before_after, smoothing])\n  |> group()\n  |> pivot(rowKey: [\"slot\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({r with slot_unix: int(v: time(v: r.slot)) / 1000000}))\n  |> sort(columns: [\"slot_unix\"])",
                     "refId": "A"
                 }
             ],
