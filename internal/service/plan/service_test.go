@@ -499,3 +499,27 @@ func TestPlanReminds_StrictLaneNoShiftWhenSlideWindowUnder60Seconds(t *testing.T
 		t.Errorf("PlannedTime = %v, want %v (original time, no shift)", result.Results[0].PlannedTime, originalTime)
 	}
 }
+
+func TestGetStartMinuteTarget(t *testing.T) {
+	svc := &Service{}
+	ctx := context.Background()
+	start := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	if got := svc.getStartMinuteTarget(ctx, start, map[string]int{}); got != nil {
+		t.Fatalf("expected nil when no previous plans, got %v", *got)
+	}
+
+	otherMinute := start.Add(time.Minute)
+	counts := map[string]int{
+		domain.MinuteKey(otherMinute): 3,
+	}
+	if got := svc.getStartMinuteTarget(ctx, start, counts); got != nil {
+		t.Fatalf("expected nil when start minute not present, got %v", *got)
+	}
+
+	counts[domain.MinuteKey(start)] = 5
+	got := svc.getStartMinuteTarget(ctx, start, counts)
+	if got == nil || *got != 5 {
+		t.Fatalf("expected start value 5, got %v", got)
+	}
+}
