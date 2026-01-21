@@ -223,7 +223,7 @@ func TestPriorityItem_IsEligibleForSlot(t *testing.T) {
 		slotTime time.Time
 		expected bool
 	}{
-		{"before release", now.Add(-1 * time.Minute), true},
+		{"before release", now.Add(-1 * time.Minute), false},
 		{"at release", now, true},
 		{"within window", now.Add(3 * time.Minute), true},
 		{"at deadline", now.Add(5 * time.Minute), true},

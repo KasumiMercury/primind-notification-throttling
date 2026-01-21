@@ -53,6 +53,11 @@ func buildTargetAllocations(window *TimeWindow, normalizedTargets []int, input S
 			currentCount = count
 		}
 
+		inputCount := 0
+		if count, ok := input.CountByMinute[key]; ok {
+			inputCount = count
+		}
+
 		target := normalizedTargets[i]
 		available := target - currentCount
 
@@ -68,6 +73,7 @@ func buildTargetAllocations(window *TimeWindow, normalizedTargets []int, input S
 			MinuteKey:    key,
 			MinuteTime:   window.MinuteTimes[i],
 			Target:       target,
+			InputCount:   inputCount,
 			CurrentCount: currentCount,
 			Available:    available,
 		}

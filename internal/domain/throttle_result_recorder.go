@@ -22,6 +22,7 @@ type SmoothingTargetRecord struct {
 	RunID       string
 	SlotTime    time.Time
 	TargetCount int
+	InputCount  int
 }
 
 type ThrottleResultRecorder interface {

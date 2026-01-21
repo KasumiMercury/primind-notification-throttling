@@ -97,8 +97,12 @@ func (h *ThrottleHandler) HandleThrottle(c *gin.Context) {
 func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, now time.Time, planEndOverride *time.Time, commitEndOverride *time.Time) {
 	runID := c.GetHeader("X-Run-ID")
 
-	// Capture smoothing targets from planning phase for recording
-	var smoothingTargetsForCommit map[string]int
+	// Calculate commit window boundaries early so we can use them in planning phase
+	commitStart := now
+	commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
+	if commitEndOverride != nil {
+		commitEnd = *commitEndOverride
+	}
 
 	if h.planService != nil {
 		planStart := now
@@ -136,29 +140,19 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 				slog.Int("shifted_count", planResult.ShiftedCount),
 			)
 
-			// Capture smoothing targets for commit window only (for recording)
-			if len(planResult.SmoothingTargets) > 0 {
-				commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
-				if commitEndOverride != nil {
-					commitEnd = *commitEndOverride
-				}
-				smoothingTargetsForCommit = make(map[string]int)
-				for _, target := range planResult.SmoothingTargets {
-					// Filter to commit window only
-					if !target.MinuteTime.Before(now) && target.MinuteTime.Before(commitEnd) {
-						key := target.MinuteTime.UTC().Truncate(time.Minute).Format(time.RFC3339)
-						smoothingTargetsForCommit[key] = target.Target
+			// Record smoothing targets from planning phase (full planning window)
+			if h.resultRecorder != nil && len(planResult.SmoothingTargets) > 0 {
+				targetRecords := h.buildSmoothingTargetRecordsFromPlan(runID, planResult.SmoothingTargets)
+				if len(targetRecords) > 0 {
+					if err := h.resultRecorder.RecordSmoothingTargets(planCtx, targetRecords); err != nil {
+						slog.WarnContext(ctx, "failed to record planning phase smoothing targets",
+							slog.String("error", err.Error()),
+						)
 					}
 				}
 			}
 		}
 		planSpan.End()
-	}
-
-	commitStart := now
-	commitEnd := now.Add(time.Duration(h.config.Throttle.ConfirmWindowMinutes) * time.Minute)
-	if commitEndOverride != nil {
-		commitEnd = *commitEndOverride
 	}
 
 	slog.InfoContext(ctx, "starting commit phase",
@@ -198,17 +192,6 @@ func (h *ThrottleHandler) processThrottle(c *gin.Context, ctx context.Context, n
 	)
 
 	if h.resultRecorder != nil {
-		if len(smoothingTargetsForCommit) > 0 {
-			targetRecords := h.buildSmoothingTargetRecords(runID, smoothingTargetsForCommit)
-			if len(targetRecords) > 0 {
-				if err := h.resultRecorder.RecordSmoothingTargets(commitCtx, targetRecords); err != nil {
-					slog.WarnContext(ctx, "failed to record smoothing targets",
-						slog.String("error", err.Error()),
-					)
-				}
-			}
-		}
-
 		fillAll := h.resultRecorder.FillAllMinutes()
 		if len(result.Results) > 0 || fillAll {
 			records := h.buildCommitResultRecords(runID, result, commitStart, commitEnd, fillAll)
@@ -363,22 +346,20 @@ func (h *ThrottleHandler) buildCommitResultRecords(runID string, result *throttl
 	return records
 }
 
-func (h *ThrottleHandler) buildSmoothingTargetRecords(runID string, smoothingTargets map[string]int) []domain.SmoothingTargetRecord {
-	if len(smoothingTargets) == 0 {
+func (h *ThrottleHandler) buildSmoothingTargetRecordsFromPlan(runID string, targets []plan.SmoothingTarget) []domain.SmoothingTargetRecord {
+	if len(targets) == 0 {
 		return nil
 	}
 
-	records := make([]domain.SmoothingTargetRecord, 0, len(smoothingTargets))
-	for minuteKey, target := range smoothingTargets {
-		slotTime, err := time.Parse(time.RFC3339, minuteKey)
-		if err != nil {
-			continue
-		}
+	records := make([]domain.SmoothingTargetRecord, 0, len(targets))
+	for _, t := range targets {
 		records = append(records, domain.SmoothingTargetRecord{
 			RunID:       runID,
-			SlotTime:    slotTime,
-			TargetCount: target,
+			SlotTime:    t.MinuteTime,
+			TargetCount: t.Target,
+			InputCount:  t.InputCount,
 		})
 	}
 	return records
 }
+

@@ -61,16 +61,17 @@ func (g *GreedyDiscovery) FindSlotForStrict(
 		return SlideResult{PlannedTime: originalTime, WasShifted: false}
 	}
 
-	windowStart := originalTime.Truncate(time.Minute)
+	windowStart := originalTime.Add(-slideWindow)
 	windowEnd := originalTime.Add(slideWindow)
+	offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 
 	// Find first slot under hard cap (greedy by time proximity)
 	for _, target := range slideCtx.Targets {
-		if target.MinuteTime.Before(windowStart) || target.MinuteTime.After(windowEnd) {
+		plannedTime := target.MinuteTime.Add(offset)
+		if plannedTime.Before(windowStart) || plannedTime.After(windowEnd) {
 			continue
 		}
 		if target.CurrentCount < slideCtx.CapPerMinute {
-			offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 			plannedTime := target.MinuteTime.Add(offset)
 
 			slog.DebugContext(ctx, "greedy-strict: found slot under cap",
@@ -121,18 +122,19 @@ func (g *GreedyDiscovery) findSlot(
 		return SlideResult{PlannedTime: originalTime, WasShifted: false}
 	}
 
-	windowStart := originalTime.Truncate(time.Minute)
+	windowStart := originalTime.Add(-slideWindow)
 	windowEnd := originalTime.Add(slideWindow)
+	offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 
 	// Find first available slot (greedy)
 	for _, target := range slideCtx.Targets {
-		if target.MinuteTime.Before(windowStart) || target.MinuteTime.After(windowEnd) {
+		plannedTime := target.MinuteTime.Add(offset)
+		if plannedTime.Before(windowStart) || plannedTime.After(windowEnd) {
 			continue
 		}
 
 		// Check both target availability and hard cap
 		if target.Available > 0 && target.CurrentCount < slideCtx.CapPerMinute {
-			offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 			plannedTime := target.MinuteTime.Add(offset)
 
 			slog.DebugContext(ctx, "greedy: found slot",

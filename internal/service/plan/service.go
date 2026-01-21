@@ -244,6 +244,7 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 			MinuteKey:  t.MinuteKey,
 			MinuteTime: t.MinuteTime,
 			Target:     t.Target,
+			InputCount: t.InputCount,
 		}
 	}
 
@@ -315,10 +316,13 @@ func (s *Service) buildPassthroughTargets(
 	for i := 0; i < window.NumMinutes; i++ {
 		key := window.MinuteKeys[i]
 
-		target := 0
+		inputCount := 0
 		if count, ok := countByMinute[key]; ok {
-			target = count
+			inputCount = count
 		}
+
+		// In passthrough mode, target equals input
+		target := inputCount
 
 		currentCount := 0
 		if count, ok := currentByMinute[key]; ok {
@@ -337,6 +341,7 @@ func (s *Service) buildPassthroughTargets(
 			MinuteKey:    key,
 			MinuteTime:   window.MinuteTimes[i],
 			Target:       target,
+			InputCount:   inputCount,
 			CurrentCount: currentCount,
 			Available:    available,
 		}

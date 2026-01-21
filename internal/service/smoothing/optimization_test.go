@@ -293,10 +293,10 @@ func TestMinCostFlow_NoPath(t *testing.T) {
 func TestMinCostFlow_MultiPath(t *testing.T) {
 	// Two paths with different costs
 	mcf := NewMinCostFlow(4)
-	mcf.AddEdge(0, 1, 5, 1)  // src -> a, cost=1
-	mcf.AddEdge(0, 2, 5, 2)  // src -> b, cost=2
-	mcf.AddEdge(1, 3, 5, 1)  // a -> sink, cost=1
-	mcf.AddEdge(2, 3, 5, 1)  // b -> sink, cost=1
+	mcf.AddEdge(0, 1, 5, 1) // src -> a, cost=1
+	mcf.AddEdge(0, 2, 5, 2) // src -> b, cost=2
+	mcf.AddEdge(1, 3, 5, 1) // a -> sink, cost=1
+	mcf.AddEdge(2, 3, 5, 1) // b -> sink, cost=1
 
 	flow, cost := mcf.Flow(0, 3, 7)
 

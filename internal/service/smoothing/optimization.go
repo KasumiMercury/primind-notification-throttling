@@ -607,6 +607,11 @@ func (o *OptimizationStrategy) buildAllocationsFromResult(
 			currentCount = count
 		}
 
+		inputCount := 0
+		if count, ok := input.CountByMinute[key]; ok {
+			inputCount = count
+		}
+
 		target := int(y[i])
 		available := target - currentCount
 
@@ -622,6 +627,7 @@ func (o *OptimizationStrategy) buildAllocationsFromResult(
 			MinuteKey:    key,
 			MinuteTime:   window.MinuteTimes[i],
 			Target:       target,
+			InputCount:   inputCount,
 			CurrentCount: currentCount,
 			Available:    available,
 		}

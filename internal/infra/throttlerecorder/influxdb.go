@@ -124,6 +124,7 @@ func (r *influxDBRecorder) RecordSmoothingTargets(ctx context.Context, records [
 			},
 			map[string]any{
 				"target_count": record.TargetCount,
+				"input_count":  record.InputCount,
 				"slot_unix":    record.SlotTime.Unix(),
 			},
 			pointTime,

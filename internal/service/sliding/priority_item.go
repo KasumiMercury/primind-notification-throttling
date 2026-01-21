@@ -16,18 +16,22 @@ type PriorityItem struct {
 }
 
 func NewPriorityItem(remind timemgmt.RemindResponse, lane domain.Lane) *PriorityItem {
+	slideWindow := time.Duration(remind.SlideWindowWidth) * time.Second
 	return &PriorityItem{
 		Remind:  remind,
 		Lane:    lane,
-		Release: remind.Time,
-		Latest:  remind.Time.Add(time.Duration(remind.SlideWindowWidth) * time.Second),
+		Release: remind.Time.Add(-slideWindow),
+		Latest:  remind.Time.Add(slideWindow),
 		Index:   -1,
 	}
 }
 
 func (p *PriorityItem) IsEligibleForSlot(slotTime time.Time) bool {
-	slotMinute := slotTime.Truncate(time.Minute)
-	return !slotMinute.After(p.Latest)
+	plannedTime := p.CalculatePlannedTime(slotTime)
+	if plannedTime.Before(p.Release) {
+		return false
+	}
+	return !plannedTime.After(p.Latest)
 }
 
 func (p *PriorityItem) CalculatePlannedTime(slotMinute time.Time) time.Time {

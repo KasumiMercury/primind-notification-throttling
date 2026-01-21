@@ -66,15 +66,17 @@ func (b *BestFitDiscovery) FindSlotForStrict(
 		return SlideResult{PlannedTime: originalTime, WasShifted: false}
 	}
 
-	windowStart := originalTime.Truncate(time.Minute)
+	windowStart := originalTime.Add(-slideWindow)
 	windowEnd := originalTime.Add(slideWindow)
+	offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 
 	var bestTarget *smoothing.TargetAllocation
 	var bestHeadroom int
 
 	for i := range slideCtx.Targets {
 		t := &slideCtx.Targets[i]
-		if t.MinuteTime.Before(windowStart) || t.MinuteTime.After(windowEnd) {
+		plannedTime := t.MinuteTime.Add(offset)
+		if plannedTime.Before(windowStart) || plannedTime.After(windowEnd) {
 			continue
 		}
 		headroom := slideCtx.CapPerMinute - t.CurrentCount
@@ -88,7 +90,6 @@ func (b *BestFitDiscovery) FindSlotForStrict(
 	}
 
 	if bestTarget != nil {
-		offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 		plannedTime := bestTarget.MinuteTime.Add(offset)
 
 		slog.DebugContext(ctx, "bestfit-strict: found alternative slot",
@@ -126,8 +127,9 @@ func (b *BestFitDiscovery) findSlot(
 		return SlideResult{PlannedTime: originalTime, WasShifted: false}
 	}
 
-	windowStart := originalTime.Truncate(time.Minute)
+	windowStart := originalTime.Add(-slideWindow)
 	windowEnd := originalTime.Add(slideWindow)
+	offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 
 	// Find original slot's availability
 	var originalAvailable int
@@ -147,7 +149,8 @@ func (b *BestFitDiscovery) findSlot(
 	for i := range slideCtx.Targets {
 		t := &slideCtx.Targets[i]
 
-		if t.MinuteTime.Before(windowStart) || t.MinuteTime.After(windowEnd) {
+		plannedTime := t.MinuteTime.Add(offset)
+		if plannedTime.Before(windowStart) || plannedTime.After(windowEnd) {
 			continue
 		}
 
@@ -166,7 +169,6 @@ func (b *BestFitDiscovery) findSlot(
 	// Use best slot if it has MORE availability than original
 	// (This enables shifting toward smoothing targets even when original has space)
 	if bestTarget != nil && bestTarget.Available > originalAvailable {
-		offset := originalTime.Sub(originalTime.Truncate(time.Minute))
 		plannedTime := bestTime.Add(offset)
 
 		shifted := bestTarget.MinuteKey != originalKey

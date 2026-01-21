@@ -23,6 +23,7 @@ type SmoothingTarget struct {
 	MinuteKey  string    `json:"minute_key"`
 	MinuteTime time.Time `json:"minute_time"`
 	Target     int       `json:"target"`
+	InputCount int       `json:"input_count"`
 }
 
 type Response struct {

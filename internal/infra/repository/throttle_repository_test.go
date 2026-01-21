@@ -865,10 +865,10 @@ func TestGetPlannedPacketSuccess(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		remindID      string
-		expectedLane  domain.Lane
-		wasShifted    bool
+		name         string
+		remindID     string
+		expectedLane domain.Lane
+		wasShifted   bool
 	}{
 		{
 			name:         "get strict lane packet not shifted",

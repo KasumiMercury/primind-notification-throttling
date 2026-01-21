@@ -11,6 +11,7 @@ type TargetAllocation struct {
 	MinuteKey    string
 	MinuteTime   time.Time
 	Target       int // Smoothed target count for this minute
+	InputCount   int // Original input count before smoothing
 	CurrentCount int // Already committed/planned count
 	Available    int // Target - CurrentCount (available capacity toward target)
 }
