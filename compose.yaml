@@ -5,10 +5,27 @@ services:
             dockerfile: Dockerfile
             target: dev
         ports:
-            - 8080:8080
+            - "8080:8080"
         volumes:
             - .:/app
-        env_file:
-            - .env
         environment:
+            - REDIS_ADDR=redis:6379
+            - REMIND_TIME_MANAGEMENT_URL=http://localhost:8081
             - OTEL_EXPORTER_DISABLED=true
+        depends_on:
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "grpc_health_probe", "-addr=:8080"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 1m
+
+    redis:
+        image: redis:7-alpine
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
