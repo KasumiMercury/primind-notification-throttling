@@ -7,7 +7,7 @@ import (
 const (
 	slidingStrategyEnv = "SLIDING_DISCOVERY_STRATEGY"
 
-	defaultSlidingStrategy = "bestfit"
+	defaultSlidingStrategy = "priority"
 )
 
 type SlidingStrategy string
