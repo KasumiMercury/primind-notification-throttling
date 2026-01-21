@@ -1,4 +1,4 @@
-FROM golang:1.25.5-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 RUN apk update
 
@@ -15,7 +15,7 @@ ARG BUILD_TAGS=""
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -tags="${BUILD_TAGS}" -o /app/main ./cmd/
 
-FROM golang:1.25.5-alpine AS dev
+FROM golang:1.25-alpine AS dev
 
 ENV CGO_ENABLED=0
 ENV GO111MODULE=auto
