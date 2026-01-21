@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	smoothingStrategyEnv        = "SMOOTHING_STRATEGY"
-	smoothingKernelRadiusEnv    = "SMOOTHING_KERNEL_RADIUS"
-	smoothingLambdaEnv          = "SMOOTHING_LAMBDA"
-	smoothingDefaultRadiusEnv   = "SMOOTHING_DEFAULT_RADIUS"
+	smoothingStrategyEnv      = "SMOOTHING_STRATEGY"
+	smoothingKernelRadiusEnv  = "SMOOTHING_KERNEL_RADIUS"
+	smoothingLambdaEnv        = "SMOOTHING_LAMBDA"
+	smoothingDefaultRadiusEnv = "SMOOTHING_DEFAULT_RADIUS"
 
 	defaultSmoothingStrategy      = "optimization"
 	defaultSmoothingKernelRadius  = 5
