@@ -15,6 +15,15 @@ type TargetAllocation struct {
 	Available    int // Target - CurrentCount (available capacity toward target)
 }
 
+// RadiusBatch represents a group of notifications with the same minute and slide radius.
+// Used by the optimization strategy to perform per-notification-radius smoothing.
+type RadiusBatch struct {
+	MinuteKey string // Minute key (e.g., "2025-01-01-10-05")
+	Minute    int    // Relative minute index within the window (0-based)
+	Count     int    // Number of notifications
+	Radius    int    // Slide radius in minutes (derived from SlideWindowWidth/60)
+}
+
 // SmoothingInput contains all information needed to calculate targets.
 // This is used before lane classification to calculate per-minute targets.
 type SmoothingInput struct {
@@ -22,6 +31,8 @@ type SmoothingInput struct {
 	CountByMinute   map[string]int // Raw count per minute before smoothing
 	CurrentByMinute map[string]int // Already committed + planned counts
 	CapPerMinute    int            // Maximum capacity per minute
+	RadiusBatches   []RadiusBatch  // Optional: per-notification radius info for optimization strategy
+	StartValue      *int           // Optional: target from previous window's first minute for continuity
 }
 
 // UpdateTargetAllocation updates the target allocation after a notification is assigned.

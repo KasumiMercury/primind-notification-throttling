@@ -107,12 +107,20 @@ func (s *Service) PlanReminds(ctx context.Context, start, end time.Time, runID s
 	previouslyPlannedByMinute := s.countPreviouslyPlannedByMinute(mergeResult.Notifications)
 	currentByMinute := s.getCurrentCountsByMinuteExcludingReplanned(ctx, start, end, previouslyPlannedByMinute)
 
+	// Build radius batches for optimization strategy
+	radiusBatches := s.buildRadiusBatches(start, end, mergeResult.Notifications)
+
+	// Get previous planned count for start minute (only for notifications still in scope)
+	startValue := s.getStartMinuteTarget(ctx, start, previouslyPlannedByMinute)
+
 	// Calculate smoothing targets based on merged notifications
 	smoothingInput := smoothing.SmoothingInput{
 		TotalCount:      len(mergeResult.Notifications),
 		CountByMinute:   allCountByMinute,
 		CurrentByMinute: currentByMinute,
 		CapPerMinute:    s.capPerMinute,
+		RadiusBatches:   radiusBatches,
+		StartValue:      startValue,
 	}
 
 	slog.DebugContext(ctx, "smoothing input",
@@ -725,4 +733,94 @@ func (s *Service) collectPriorityItems(
 	}
 
 	return looseItems, strictItems
+}
+
+// buildRadiusBatches builds RadiusBatch slices for the optimization strategy.
+// Groups notifications by (minuteKey, radius) and calculates the relative minute index.
+func (s *Service) buildRadiusBatches(
+	start, end time.Time,
+	notifications []MergedNotification,
+) []smoothing.RadiusBatch {
+	window := smoothing.NewTimeWindow(start, end)
+	if window == nil || len(notifications) == 0 {
+		return nil
+	}
+
+	// Create a map from minuteKey to relative minute index
+	minuteKeyToIndex := make(map[string]int)
+	for i, key := range window.MinuteKeys {
+		minuteKeyToIndex[key] = i
+	}
+
+	// Group by (minuteKey, radius)
+	type groupKey struct {
+		minuteKey string
+		radius    int
+	}
+	groups := make(map[groupKey]int)
+
+	// Calculate last valid minute in window (end is exclusive)
+	lastMinute := end.Add(-time.Minute)
+
+	for _, n := range notifications {
+		// Determine the time to use for minute key
+		var t time.Time
+		if n.PreviousPlan != nil {
+			t = n.PreviousPlan.PlannedTime
+		} else {
+			t = n.Remind.Time
+		}
+
+		// Clamp time to window bounds to ensure all notifications are included
+		// This handles notifications that were planned outside the current window
+		if t.Before(start) {
+			t = start
+		} else if !t.Before(end) {
+			t = lastMinute
+		}
+
+		minuteKey := domain.MinuteKey(t)
+
+		// Calculate radius from SlideWindowWidth (seconds) to minutes.
+		// SlideWindowWidth is the half-width (one side); radius is that width in minutes.
+		radius := max(int(n.Remind.SlideWindowWidth)/60, 0)
+
+		key := groupKey{minuteKey: minuteKey, radius: radius}
+		groups[key]++
+	}
+
+	// Convert groups to RadiusBatch slice
+	// All minuteKeys are now guaranteed to be within the window due to clamping
+	batches := make([]smoothing.RadiusBatch, 0, len(groups))
+	for key, count := range groups {
+		minuteIdx := minuteKeyToIndex[key.minuteKey]
+
+		batches = append(batches, smoothing.RadiusBatch{
+			MinuteKey: key.minuteKey,
+			Minute:    minuteIdx,
+			Count:     count,
+			Radius:    key.radius,
+		})
+	}
+
+	return batches
+}
+
+// getStartMinuteTarget retrieves the previously planned count for the start minute.
+// Returns nil if no previous plan exists for that minute.
+func (s *Service) getStartMinuteTarget(ctx context.Context, start time.Time, previouslyPlannedByMinute map[string]int) *int {
+	if len(previouslyPlannedByMinute) == 0 {
+		return nil
+	}
+
+	startKey := domain.MinuteKey(start)
+	if count, ok := previouslyPlannedByMinute[startKey]; ok && count > 0 {
+		slog.DebugContext(ctx, "using previous planned count as start value",
+			slog.String("minute_key", startKey),
+			slog.Int("start_value", count),
+		)
+		return &count
+	}
+
+	return nil
 }

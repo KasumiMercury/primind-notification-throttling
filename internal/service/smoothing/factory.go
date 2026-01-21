@@ -13,6 +13,16 @@ func NewStrategy(cfg *config.SmoothingConfig) Strategy {
 	}
 
 	switch cfg.Strategy {
+	case config.SmoothingStrategyOptimization:
+		slog.Info("using optimization smoothing strategy",
+			slog.Float64("lambda", cfg.Lambda),
+			slog.Int("default_radius", cfg.DefaultRadius),
+		)
+		return NewOptimizationStrategy(&OptimizationConfig{
+			LambdaTargetSmooth: cfg.Lambda,
+			DefaultRadius:      cfg.DefaultRadius,
+		})
+
 	case config.SmoothingStrategyTriangular:
 		slog.Info("using triangular kernel smoothing strategy",
 			slog.Int("kernel_radius", cfg.KernelRadius),
