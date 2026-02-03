@@ -129,6 +129,7 @@ func run() int {
 	if cfg.Redis.TLS {
 		redisOpts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
+
 	redisClient := redis.NewClient(redisOpts)
 
 	if err := redisotel.InstrumentTracing(redisClient); err != nil {
