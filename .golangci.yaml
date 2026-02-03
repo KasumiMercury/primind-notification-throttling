@@ -5,3 +5,7 @@ linters:
         errcheck:
             exclude-functions:
                 - (io.Closer).Close
+        exhaustruct:
+            exclude:
+                - 'crypto/tls\.Config'
+                - 'github\.com/redis/go-redis/v9\.Options'
