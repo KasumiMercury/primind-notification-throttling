@@ -9,6 +9,7 @@ const (
 	redisAddrEnv     = "REDIS_ADDR"
 	redisPasswordEnv = "REDIS_PASSWORD"
 	redisDBEnv       = "REDIS_DB"
+	redisTLSEnv      = "REDIS_TLS"
 
 	defaultRedisAddr = "localhost:6379"
 	defaultRedisDB   = 0
@@ -18,6 +19,7 @@ type RedisConfig struct {
 	Addr     string
 	Password string
 	DB       int
+	TLS      bool
 }
 
 func LoadRedisConfig() (*RedisConfig, error) {
@@ -37,10 +39,13 @@ func LoadRedisConfig() (*RedisConfig, error) {
 		db = parsed
 	}
 
+	useTLS := os.Getenv(redisTLSEnv) == "true"
+
 	return &RedisConfig{
 		Addr:     addr,
 		Password: password,
 		DB:       db,
+		TLS:      useTLS,
 	}, nil
 }
 
