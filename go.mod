@@ -3,7 +3,7 @@ module github.com/KasumiMercury/primind-notification-throttling
 go 1.25.4
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.1.0
 	cloud.google.com/go/bigquery v1.72.0
 	cloud.google.com/go/cloudtasks v1.13.7
@@ -27,7 +27,7 @@ require (
 	golang.org/x/net v0.47.0
 	google.golang.org/api v0.250.0
 	google.golang.org/grpc v1.77.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gorm.io/gorm v1.31.1
 )
 
