@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
@@ -223,7 +225,11 @@ func run() int {
 
 	// gRPC Health Checking Protocol (grpc.health.v1.Health/Check)
 	grpcHealthChecker := health.NewGRPCChecker(healthChecker)
-	grpcHealthPath, grpcHealthHandler := grpchealth.NewHandler(grpcHealthChecker)
+	connectServer := connect.NewServer()
+	grpchealth.Register(connectServer, grpcHealthChecker)
+	grpcHealthPath := "/" + grpchealth.HealthV1ServiceName + "/"
+	grpcHealthHandler := http.NewServeMux()
+	connecthttp.Mount(grpcHealthHandler, connectServer)
 
 	// API routes
 	v1 := r.Group("/api/v1")
