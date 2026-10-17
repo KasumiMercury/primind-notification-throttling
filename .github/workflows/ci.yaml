@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Build with gcloud tag
+        run: go build -tags gcloud ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15
+
+  docker:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - variant: local
+            build_tags: ""
+            run_args: ""
+          - variant: gcloud
+            build_tags: gcloud
+            run_args: >-
+              -e GCLOUD_PROJECT_ID=ci
+              -e GCLOUD_LOCATION_ID=ci
+              -e GCLOUD_QUEUE_ID=ci
+              -e GCLOUD_TARGET_URL=http://localhost:8081
+              -e GOOGLE_APPLICATION_CREDENTIALS=/credentials.json
+              -v /tmp/credentials.json:/credentials.json:ro
+
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build runner image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          platforms: linux/amd64
+          load: true
+          tags: throttling:ci
+          build-args: |
+            BUILD_TAGS=${{ matrix.build_tags }}
+          cache-from: type=gha,scope=${{ matrix.variant }}
+
+      - name: Build loadtest stub server image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: loadtest/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: throttling-stub:ci
+          cache-from: type=gha,scope=loadtest
+          cache-to: type=gha,mode=max,scope=loadtest
+
+      - name: Check grpc_health_probe
+        run: docker run --rm --entrypoint /grpc_health_probe throttling:ci -version
+
+      - name: Start loadtest stub server
+        run: |
+          docker run -d --name stub --network host throttling-stub:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8081/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs stub
+          exit 1
+
+      - name: Write placeholder Google credentials
+        if: matrix.variant == 'gcloud'
+        run: >-
+          echo '{"type":"authorized_user","client_id":"ci","client_secret":"ci","refresh_token":"ci"}'
+          > /tmp/credentials.json
+
+      - name: Start runner and probe health
+        run: |
+          docker run -d --name app --network host \
+            -e REDIS_ADDR=localhost:6379 \
+            -e REMIND_TIME_MANAGEMENT_URL=http://localhost:8081 \
+            -e OTEL_EXPORTER_DISABLED=true \
+            -e THROTTLE_RESULTS_DISABLED=true \
+            ${{ matrix.run_args }} \
+            throttling:ci
+          for _ in $(seq 1 30); do
+            if docker exec app /grpc_health_probe -addr=localhost:8080; then
+              docker logs app
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs app
+          exit 1
+
+  scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - lint
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          format: table
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+          scan-type: fs
+          vuln-type: 'os,library'
