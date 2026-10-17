@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/KasumiMercury/primind-notification-throttling/internal/config"
 	"github.com/KasumiMercury/primind-notification-throttling/internal/handler"
@@ -225,7 +225,11 @@ func run() int {
 
 	// gRPC Health Checking Protocol (grpc.health.v1.Health/Check)
 	grpcHealthChecker := health.NewGRPCChecker(healthChecker)
-	grpcHealthPath, grpcHealthHandler := grpchealth.NewHandler(grpcHealthChecker)
+	connectServer := connect.NewServer()
+	grpchealth.Register(connectServer, grpcHealthChecker)
+	grpcHealthPath := "/" + grpchealth.HealthV1ServiceName + "/"
+	grpcHealthHandler := http.NewServeMux()
+	connecthttp.Mount(grpcHealthHandler, connectServer)
 
 	// API routes
 	v1 := r.Group("/api/v1")
@@ -244,10 +248,14 @@ func run() int {
 		r.ServeHTTP(w, req)
 	})
 
-	h2s := &http2.Server{}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: h2c.NewHandler(handler, h2s),
+		Addr:      ":" + cfg.Port,
+		Handler:   handler,
+		Protocols: protocols,
 	}
 
 	// Start server in goroutine

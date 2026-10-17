@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
